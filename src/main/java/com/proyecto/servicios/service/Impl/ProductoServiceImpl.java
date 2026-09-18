@@ -7,6 +7,7 @@ import com.proyecto.servicios.model.producto.ProductoDto;
 import com.proyecto.servicios.model.producto.ProductoListResponse;
 import com.proyecto.servicios.model.producto.ProductoXml;
 import com.proyecto.servicios.repositorys.gestopago.GestoPagoTokenRepository;
+import com.proyecto.servicios.service.GestoPagoTokenService;
 import com.proyecto.servicios.service.ProductoService;
 import feign.FeignException;
 import jakarta.xml.bind.JAXBContext;
@@ -29,6 +30,7 @@ public class ProductoServiceImpl implements ProductoService {
 
     private final ProductoClient productoClient;
     private final GestoPagoTokenRepository tokenRepository;
+    private final GestoPagoTokenService tokenService;
 
     @Value("${productos.service.id-distribuidor}")
     private Integer idDistribuidor;
@@ -40,9 +42,11 @@ public class ProductoServiceImpl implements ProductoService {
     private final List<ProductoDto> productosCache = new CopyOnWriteArrayList<>();
 
     public ProductoServiceImpl(ProductoClient productoClient,
-                               GestoPagoTokenRepository tokenRepository) {
+                               GestoPagoTokenRepository tokenRepository,
+                               GestoPagoTokenService tokenService) {
         this.productoClient = productoClient;
         this.tokenRepository = tokenRepository;
+        this.tokenService = tokenService;
     }
 
     @Override
@@ -76,9 +80,15 @@ public class ProductoServiceImpl implements ProductoService {
                 tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
 
         if (tokenOpt.isEmpty()) {
-            log.error("No se encontro token activo en BD para distribuidor={}", idDistribuidor);
+            log.warn("No se encontro token en BD. Disparando renovacion automatica contra PuntoRed...");
+            tokenService.renovarToken();
+            tokenOpt = tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
+        }
+
+        if (tokenOpt.isEmpty()) {
+            log.error("No se pudo obtener token activo en BD tras intento de renovacion para distribuidor={}", idDistribuidor);
             throw new IntegracionException(
-                    "No hay token activo disponible. El sistema intentara renovarlo automaticamente.",
+                    "No hay token activo disponible. Verifique la conexion y credenciales de PuntoRed.",
                     HttpStatus.SERVICE_UNAVAILABLE
             );
         }
@@ -87,17 +97,31 @@ public class ProductoServiceImpl implements ProductoService {
 
     private String llamarApi(String token) {
         try {
-            log.info("Llamando a PuntoRed getProductList...");
-            String respuesta = productoClient.getProductList("Bearer " + token);
-            log.info("Respuesta recibida de PuntoRed getProductList");
+            String authHeader = formatBearerToken(token);
+            log.info("Llamando a PuntoRed getProductList con token dinámico...");
+            String respuesta = productoClient.getProductList(authHeader);
+            log.info("Respuesta recibida exitosamente de PuntoRed getProductList");
             return respuesta;
         } catch (FeignException.Unauthorized | FeignException.Forbidden ex) {
-            log.error("Error de autenticacion al llamar PuntoRed getProductList. Status: {}", ex.status());
-            throw new IntegracionException(
-                    "Token no valido o expirado. El sistema renovara el token automaticamente.",
-                    HttpStatus.UNAUTHORIZED,
-                    ex
-            );
+            log.warn("Token rechazado por PuntoRed (401/403). Forzando renovacion de token en tiempo real...");
+            tokenService.renovarToken();
+            String nuevoToken = tokenRepository
+                    .findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo)
+                    .map(GestoPagoToken::getToken)
+                    .orElse(token);
+
+            try {
+                String authRetry = formatBearerToken(nuevoToken);
+                log.info("Reintentando llamada a PuntoRed getProductList con token recien renovado...");
+                return productoClient.getProductList(authRetry);
+            } catch (Exception retryEx) {
+                log.error("Fallo el reintento con token renovado: {}", retryEx.getMessage());
+                throw new IntegracionException(
+                        "Token no valido o expirado. No fue posible reautenticar con PuntoRed.",
+                        HttpStatus.UNAUTHORIZED,
+                        retryEx
+                );
+            }
         } catch (FeignException.GatewayTimeout ex) {
             log.error("Timeout al llamar PuntoRed getProductList");
             throw new IntegracionException(
@@ -151,5 +175,13 @@ public class ProductoServiceImpl implements ProductoService {
         dto.setTipoReferencia(xml.getTipoReferencia());
         dto.setLegend(xml.getLegend());
         return dto;
+    }
+
+    private String formatBearerToken(String token) {
+        if (token == null || token.isBlank()) {
+            return "";
+        }
+        String trimmed = token.trim();
+        return trimmed.startsWith("Bearer ") ? trimmed : "Bearer " + trimmed;
     }
 }
