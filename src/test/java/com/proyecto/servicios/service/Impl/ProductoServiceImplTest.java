@@ -5,6 +5,7 @@ import com.proyecto.servicios.config.exception.IntegracionException;
 import com.proyecto.servicios.entity.gestopago.GestoPagoToken;
 import com.proyecto.servicios.model.producto.ProductoDto;
 import com.proyecto.servicios.repositorys.gestopago.GestoPagoTokenRepository;
+import com.proyecto.servicios.service.GestoPagoTokenService;
 import feign.FeignException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,6 +34,9 @@ class ProductoServiceImplTest {
 
     @Mock
     private GestoPagoTokenRepository tokenRepository;
+
+    @Mock
+    private GestoPagoTokenService tokenService;
 
     @InjectMocks
     private ProductoServiceImpl productoService;

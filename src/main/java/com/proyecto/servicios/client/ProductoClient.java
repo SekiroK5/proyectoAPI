@@ -14,6 +14,6 @@ public interface ProductoClient {
      * @param authorization Header de autorizacion con formato "Bearer {token}"
      * @return Respuesta XML con la lista de productos
      */
-    @GetMapping("/sistema/service/getProductList.do")
-    String getProductList(@RequestHeader("Authorization") String authorization);
+    @GetMapping(value = "/sistema/service/getProductList.do", headers = "Accept=text/xml, application/xml, */*")
+    String getProductList(@RequestHeader(name = "Authorization") String authorization);
 }
