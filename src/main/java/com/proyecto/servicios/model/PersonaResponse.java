@@ -1,5 +1,6 @@
 package com.proyecto.servicios.model;
 
+import com.proyecto.servicios.dto.response.GenericResponse;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;

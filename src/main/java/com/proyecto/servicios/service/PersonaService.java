@@ -1,7 +1,7 @@
 package com.proyecto.servicios.service;
 
 import com.proyecto.servicios.model.EliminaPersonaRequest;
-import com.proyecto.servicios.model.GenericResponse;
+import com.proyecto.servicios.dto.response.GenericResponse;
 import com.proyecto.servicios.model.PersonaResponse;
 import com.proyecto.servicios.model.PersonasRequest;
 

@@ -1,0 +1,162 @@
+classDiagram
+    direction LR
+
+    %% ===================== Capa web =====================
+    class ClienteController {
+        -ClienteService clienteService
+        +registrar(ClienteCreateRequest) ResponseEntity
+        +listar() ResponseEntity
+        +buscar(ClienteBusquedaRequest) ResponseEntity
+        +consultar(ClienteConsultaRequest) ResponseEntity
+        +actualizar(ClienteUpdateRequest) ResponseEntity
+        +eliminar(ClienteEliminacionRequest) ResponseEntity
+    }
+    class CuentaController {
+        -CuentaService cuentaService
+        +consultar(CuentaConsultaRequest) ResponseEntity
+        +buscar(CuentaBusquedaRequest) ResponseEntity
+    }
+    class GlobalExceptionHandler {
+        +dtoValidation(Errors) ResponseEntity~GenericResponse~
+    }
+
+    %% ===================== Servicios =====================
+    class ClienteService {
+        <<interface>>
+        +registrar(ClienteCreateRequest) ClienteResponse
+        +listar() PaginaResponse
+        +buscar(ClienteBusquedaRequest) PaginaResponse
+        +consultar(ClienteConsultaRequest) ClienteResponse
+        +actualizar(ClienteUpdateRequest) ClienteResponse
+        +eliminar(ClienteEliminacionRequest) ClienteResponse
+    }
+    class CuentaService {
+        <<interface>>
+        +consultar(CuentaConsultaRequest) CuentaResponse
+        +buscar(CuentaBusquedaRequest) PaginaResponse
+    }
+    class ClienteServiceImpl {
+        -BigDecimal saldoInicial
+        -localizar(ClienteLlaveRequest) Cliente
+        -cambiarEstado(Cliente, boolean)
+        -generarNumeroCuentaUnico() String
+    }
+    class CuentaServiceImpl
+
+    %% ===================== Persistencia =====================
+    class ClienteRepository {
+        <<interface>>
+        +findByNombreIgnoreCaseAndCorreoElectronico(String, String) Optional
+        +findAll(Specification, Pageable) Page
+        +existsByCorreoElectronico(String) boolean
+    }
+    class CuentaRepository {
+        <<interface>>
+        +findByNumeroCuenta(String) Optional
+        +findAll(Specification, Pageable) Page
+    }
+    class JpaSpecificationExecutor~T~ {
+        <<interface>>
+    }
+    class ClienteSpecification {
+        +desde(ClienteBusquedaRequest)$ Specification
+    }
+    class CuentaSpecification {
+        +desde(CuentaBusquedaRequest)$ Specification
+    }
+
+    %% ===================== Entidades =====================
+    class Cliente {
+        <<entity>>
+        -Integer id
+        -String nombre
+        -String curp
+        -String rfc
+        -String correoElectronico
+        -String telefonoMovil
+        -Sexo sexo
+        -EstadoCivil estadoCivil
+        -BigDecimal ingresoMensual
+        -Boolean activo
+        -LocalDateTime fechaCreacion
+    }
+    class Domicilio {
+        <<entity>>
+        -Integer id
+        -String calle
+        -String codigoPostal
+    }
+    class Cuenta {
+        <<entity>>
+        -Integer id
+        -String numeroCuenta
+        -BigDecimal saldo
+        -EstatusCuenta estatus
+    }
+
+    %% ===================== DTOs de entrada =====================
+    class ClienteLlaveRequest {
+        <<abstract>>
+        -String nombre
+        -String correoElectronico
+    }
+    class ClienteConsultaRequest
+    class ClienteEliminacionRequest
+    class ClienteUpdateRequest {
+        -String nuevoNombre
+        -String nuevoCorreoElectronico
+        -Optional~String~ telefonoAlternativo
+        -Boolean activo
+        +isConCambios() boolean
+    }
+    class ClienteCreateRequest
+    class PaginacionRequest {
+        <<abstract>>
+        -Integer pagina
+        -Integer tamanio
+        +toPageable(Sort) Pageable
+    }
+    class ClienteBusquedaRequest
+    class CuentaBusquedaRequest
+
+    %% ===================== DTOs de respuesta =====================
+    class GenericResponse {
+        -Integer codigo
+        -String mensaje
+    }
+    class ApiResponse~T~ {
+        -T datos
+        -HttpStatus status
+        +exito(HttpStatus, String, T)$ ApiResponse
+        +error(HttpStatus, String)$ ApiResponse
+    }
+
+    %% ===================== Relaciones =====================
+    ClienteController --> ClienteService
+    CuentaController --> CuentaService
+    ClienteServiceImpl ..|> ClienteService
+    CuentaServiceImpl ..|> CuentaService
+    ClienteServiceImpl --> ClienteRepository
+    ClienteServiceImpl --> CuentaRepository
+    CuentaServiceImpl --> CuentaRepository
+    ClienteServiceImpl ..> ClienteSpecification
+    CuentaServiceImpl ..> CuentaSpecification
+    ClienteRepository --|> JpaSpecificationExecutor
+    CuentaRepository --|> JpaSpecificationExecutor
+
+    Cliente "1" *-- "1" Domicilio : domicilio
+    Cliente "1" -- "1" Cuenta : cuenta
+    ClienteRepository ..> Cliente
+    CuentaRepository ..> Cuenta
+
+    ClienteLlaveRequest <|-- ClienteConsultaRequest
+    ClienteLlaveRequest <|-- ClienteEliminacionRequest
+    ClienteLlaveRequest <|-- ClienteUpdateRequest
+    PaginacionRequest <|-- ClienteBusquedaRequest
+    PaginacionRequest <|-- CuentaBusquedaRequest
+    ClienteServiceImpl ..> ClienteLlaveRequest : localizar() polimorfico
+    ClienteController ..> ClienteCreateRequest
+
+    GenericResponse <|-- ApiResponse
+    GlobalExceptionHandler ..> GenericResponse : errores de validacion
+    ClienteServiceImpl ..> ApiResponse : exito / error de negocio
