@@ -1,0 +1,5 @@
+# Copie este archivo como config/gestopago.properties (esta en .gitignore) y capture los valores
+# que entrega PuntoRed. Para pruebas use el "Test key pair" publicado en su documentacion.
+# Tambien se pueden definir como variables de entorno GESTOPAGO_SECRET_KEY y GESTOPAGO_IV.
+gestopago.cifrado.llave=
+gestopago.cifrado.iv=

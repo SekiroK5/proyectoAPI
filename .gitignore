@@ -41,3 +41,5 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+### Configuracion local con secretos ###
+config/gestopago.properties

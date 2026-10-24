@@ -3,6 +3,10 @@ package com.proyecto.servicios.config;
 import com.proyecto.servicios.controller.AuthController;
 import com.proyecto.servicios.controller.ClienteController;
 import com.proyecto.servicios.controller.CuentaController;
+import com.proyecto.servicios.controller.TransaccionController;
+import com.proyecto.servicios.handler.SendTxComando;
+import com.proyecto.servicios.handler.SendTxHandler;
+import com.proyecto.servicios.dto.response.TransaccionResponse;
 import com.proyecto.servicios.dto.response.ApiResponse;
 import com.proyecto.servicios.dto.response.ClienteResponse;
 import com.proyecto.servicios.dto.response.LoginResponse;
@@ -26,7 +30,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
+import org.mockito.ArgumentCaptor;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -36,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Cadena de seguridad real (sin base de datos): que rutas son publicas y que tokens se aceptan.
  */
-@WebMvcTest(controllers = {ClienteController.class, CuentaController.class, AuthController.class})
+@WebMvcTest(controllers = {ClienteController.class, CuentaController.class, AuthController.class, TransaccionController.class})
 @Import({SeguridadConfig.class, TokenJwt.class})
 @DisplayName("SeguridadConfig - rutas protegidas y tokens")
 class SeguridadConfigTest {
@@ -55,6 +63,9 @@ class SeguridadConfigTest {
 
     @MockBean
     private AuthService authService;
+
+    @MockBean
+    private SendTxHandler sendTxHandler;
 
     private void listarDevuelvePaginaVacia() {
         when(clienteService.listar()).thenReturn(ApiResponse.exito(HttpStatus.OK, "ok",
@@ -117,5 +128,32 @@ class SeguridadConfigTest {
         mockMvc.perform(post("/api/v1/clientes").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value(1));
+    }
+
+    private static final String PAGO = "{\"numeroCuenta\":\"4152313748382907\",\"idServicio\":133,\"idProducto\":582,"
+            + "\"monto\":10.00,\"telefono\":\"5555555551\",\"2fa\":\"123456\"}";
+
+    @Test
+    @DisplayName("POST /api/v1/transaccion sin token: 401 y no llega al handler")
+    void transaccion_sinToken_401() throws Exception {
+        mockMvc.perform(post("/api/v1/transaccion").contentType(MediaType.APPLICATION_JSON).content(PAGO))
+                .andExpect(status().isUnauthorized());
+        org.mockito.Mockito.verifyNoInteractions(sendTxHandler);
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/transaccion: el cliente sale del token y acepta el campo \"2fa\"")
+    void transaccion_clienteDelToken() throws Exception {
+        when(sendTxHandler.handle(any())).thenReturn(ApiResponse.exito(HttpStatus.OK, "Pago exitoso.", new TransaccionResponse()));
+
+        mockMvc.perform(post("/api/v1/transaccion").contentType(MediaType.APPLICATION_JSON).content(PAGO)
+                        .header("Authorization", "Bearer " + tokenJwt.emitirAcceso(7, "juanperez95")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mensaje").value("Pago exitoso."));
+
+        ArgumentCaptor<SendTxComando> comando = ArgumentCaptor.forClass(SendTxComando.class);
+        verify(sendTxHandler).handle(comando.capture());
+        assertThat(comando.getValue().clienteId()).isEqualTo(7);
+        assertThat(comando.getValue().request().getCodigoA2F()).isEqualTo("123456");
     }
 }

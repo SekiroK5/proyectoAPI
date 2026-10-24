@@ -54,6 +54,7 @@ Reglas de diseño que sigue la API (según el instrumento de evaluación):
    | `V4__reglas_e_indices_onboarding.sql` | Restricciones `CHECK`, relaciones 1:1, índices parciales y limpieza de índices duplicados |
    | `V5__numero_cuenta_16_digitos.sql` | Número de cuenta de 16 dígitos (las cuentas existentes se completan con ceros a la izquierda) |
    | `V6__inicio_sesion_y_a2f.sql` | Contraseña cifrada, segundo factor TOTP e intentos fallidos / bloqueo |
+   | `V7__transacciones_gestopago.sql` | Tabla `transacciones`: pagos y recargas enviados a GestoPago con su petición y respuesta |
 
    (`V1` corresponde al módulo de productos/GestoPago).
 
@@ -137,6 +138,7 @@ La columna **Token** indica si el endpoint exige `Authorization: Bearer <tokenAc
 | Eliminar (baja lógica) | DELETE | `/clientes/eliminacion` | `ClienteEliminacionRequest` | Sí | 200 | 400, 401, 404, 409 |
 | Consultar cuenta y saldo | POST | `/cuentas/consulta` | `CuentaConsultaRequest` | Sí | 200 | 400, 401, 404 |
 | Búsqueda de cuentas | POST | `/cuentas/busqueda` | `CuentaBusquedaRequest` | Sí | 200 | 400, 401 |
+| Pago o recarga (GestoPago) | POST | `/transaccion` | `TransaccionRequest` | Sí | 200, 202 | 400, 401, 403, 404, 409, 422, 423, 503 |
 
 Fuera de `/api/v1`: `GET /productosList` (catálogo de PuntoRed) es público, y los endpoints anteriores de personas (`/personas`, `/personasActualiza`, `/personasElimina`) exigen token.
 
@@ -159,6 +161,53 @@ Reglas de seguridad:
 - El token temporal no abre ningún endpoint protegido, y el token de acceso no sirve para el paso A2F.
 - Los clientes registrados antes de la migración `V6` no tienen contraseña y no pueden iniciar sesión hasta que se les asigne una.
 - Por ahora el único método es TOTP. Huella y reconocimiento facial se agregarían como nuevos valores de `MetodoA2F` usando WebAuthn (passkeys).
+
+### Pagos y recargas con GestoPago (`POST /transaccion`)
+
+Basado en la documentación de PuntoRed (*Key Points*, *Encryption Snipplets*, `sendTx` y `confirmTx`). Lo ejecuta `SendTxHandler` (paquete `handler`), que el controlador manda llamar con el cliente de la sesión:
+
+```java
+SendTxComando comando = new SendTxComando(Integer.valueOf(sesion.getSubject()), request);
+ApiResponse<TransaccionResponse> respuesta = sendTxHandler.handle(comando);
+return ResponseEntity.status(respuesta.getStatus()).body(respuesta);
+```
+
+Cuerpo (también acepta los nombres del diagrama `idSer`, `idProd` y `2fa`):
+
+```json
+{ "numeroCuenta": "4152313748382907", "idServicio": 133, "idProducto": 582,
+  "monto": 10.00, "telefono": "5555555551", "codigoA2F": "123456" }
+```
+
+Flujo:
+
+1. **Validaciones previas:** la cuenta existe y **es del usuario de la sesión** (403 si no), cliente y cuenta activos, **saldo** suficiente, el producto está en el catálogo (`/productosList`) y cumple sus reglas, y el **código 2FA** es válido. Un código incorrecto cuenta para el mismo bloqueo de 5 intentos que el inicio de sesión, y un código no autoriza dos pagos.
+2. **Payload SendTx**, con los nombres, el orden y las longitudes de la documentación: `idProducto`, `idServicio`, `telefono` (10–20), `horaLocal` (`yyyyMMddHHmmss`, hora de Ciudad de México), `referencia` (1–100) y `montoPago` solo en pago de servicios, `upc` (cadena aleatoria de 10 caracteres alfanuméricos, única) y `unidad` (3–25).
+   - **tipoFront 1** (recargas): el teléfono va en `telefono` y el monto debe ser igual al precio del producto.
+   - **tipoFront 2** (servicios): `telefono` fijo `1111111111`, y `referencia` y `montoPago` obligatorios.
+   - **idCatTipoServicio 10 y 11** (canjeables): `telefono` fijo `#1111111111`.
+   - Otros tipoFront (cash-in, transferencias) responden 422.
+3. **Saldo apartado:** con la cuenta bloqueada (`SELECT ... FOR UPDATE`) se vuelve a validar y se descuenta el monto, y se registra la transacción `PENDIENTE`. Así dos pagos simultáneos no pueden dejar el saldo en negativo.
+4. **Cifrado** (`AesEncryption`, el snippet de Java de la documentación, usado por `CifradoGestoPago`): AES/CBC/PKCS5Padding, llave e IV en Base64 y resultado en Base64. Una prueba verifica que se obtiene exactamente el *Encryption Expected Result* de la documentación.
+5. **Token** (`GestoPagoTokenService`): se reutiliza el token guardado y solo se pide uno nuevo cada 23 h, porque PuntoRed permite uno al día y prohíbe pedirlo en cada petición. Si GestoPago responde 401/403, se renueva y se reintenta una vez.
+6. **Envío** (`GestoPagoTxGateway`): `POST /sistema/service/sendTx.do` como formulario urlencoded con `random` (timestamp) y `signed` (payload cifrado), con `Authorization: Bearer <token>` y `X-API-Key` si se configuró. El timeout de lectura es de 70 s, mayor a los 62 s que espera GestoPago.
+7. **Respuesta** (XML, sin cifrar):
+
+   | GestoPago | Estatus | HTTP | Saldo |
+   |---|---|---|---|
+   | Código `01` | `APLICADA` | 200 *Pago exitoso.* | Queda descontado |
+   | Otro código (p. ej. `02`, `06`) | `RECHAZADA` | 422 con el texto de GestoPago | Se devuelve |
+   | Código `82` o sin respuesta | `PENDIENTE_CONFIRMACION` | 202 | Sigue apartado |
+   | No se pudo enviar (sin token) | `RECHAZADA` | 503 | Se devuelve |
+
+**confirmTx:** `ConfirmTxProceso` revisa cada minuto las transacciones sin respuesta de entre 62 s y 24 h y las confirma con los mismos parámetros. El código `06` las marca como aplicadas; el `70` las rechaza y devuelve el saldo. Las de más de 24 h se quedan para revisión manual.
+
+**Bitácora:** la tabla `transacciones` guarda el JSON enviado, la respuesta tal como llegó, el UPC, el número de autorización y el PIN, como exige la documentación.
+
+**Configuración:**
+
+- **Llave e IV de cifrado:** no están en el código ni en `application.properties`. Se toman de las variables de entorno `GESTOPAGO_SECRET_KEY` y `GESTOPAGO_IV`, o del archivo `config/gestopago.properties`, que está fuera de Git; `config/gestopago.properties.example` sirve de plantilla. Sin ellas la API arranca, pero los pagos responden 503 sin hacer ningún cargo.
+- **Otros valores:** `GESTOPAGO_API_KEY` (opcional) y `GESTOPAGO_UNIDAD` (por defecto `083`).
 
 ### Reglas por operación
 
@@ -294,7 +343,9 @@ Todas las respuestas de la API tienen la forma `{ "codigo", "mensaje", "datos" }
 | 403 | Servicio (`codigo: 1`) | Inicio de sesión de un cliente dado de baja |
 | 404 | Servicio (`codigo: 1`) | No hay cliente con ese nombre y correo, o no existe la cuenta |
 | 409 | Servicio (`codigo: 1`) | CURP, RFC, correo o usuario repetido; cliente ya dado de baja; A2F ya configurado o sin configurar |
-| 423 | Servicio (`codigo: 1`) | Inicio de sesión bloqueado temporalmente por intentos fallidos |
+| 422 | Handler (`codigo: 1`) | GestoPago rechazó el pago, o el tipo de producto no se puede pagar |
+| 423 | Servicio (`codigo: 1`) | Inicio de sesión o pagos bloqueados temporalmente por intentos fallidos |
+| 503 | Handler (`codigo: 1`) | No fue posible conectar con GestoPago o su catálogo; no se hizo ningún cargo |
 | 400 / 405 / 415 / 500 | Spring Boot (respuesta por defecto) | JSON mal formado, método o tipo de contenido no soportado, error inesperado. Se configuró `server.error.include-stacktrace=never` (y `include-message`/`include-exception` desactivados), así que nunca se exponen trazas ni detalles internos |
 
 ## 7. Consumo de los servicios REST
@@ -311,12 +362,17 @@ Todas las respuestas de la API tienen la forma `{ "codigo", "mensaje", "datos" }
 
 ## 8. Evidencia de pruebas realizadas
 
-### Pruebas automatizadas (`.\gradlew.bat test`): 83 pruebas, todas aprobadas
+### Pruebas automatizadas (`.\gradlew.bat test`): 127 pruebas, todas aprobadas
 
 | Suite | Pruebas | Qué cubre |
 |---|---|---|
+| `SendTxHandlerTest` | 19 | Cuenta inexistente o ajena, cliente o cuenta inactivos, saldo insuficiente (también entre pagos simultáneos), producto fuera del catálogo, reglas de tipoFront y teléfonos fijos, 2FA incorrecto, sin configurar o reutilizado, payload exacto, éxito, rechazo, código 82, sin respuesta y no enviada |
+| `GestoPagoTxGatewayTest` | 7 | Formulario `random` + `signed` y token Bearer, reintento con token renovado tras 403, timeout, sin token, XML ilegible, `ID_TX` de confirmTx |
+| `CifradoGestoPagoTest` | 6 | Vector oficial de la documentación con el snippet `AesEncryption` y con `CifradoGestoPago`, UTF-8, sin llaves configuradas, longitudes de llave e IV |
+| `RegistroTransaccionesTest` | 6 | Saldo apartado, saldo insuficiente, bitácora de la respuesta, devolución una sola vez, nunca revertir una aplicada |
+| `ConfirmTxProcesoTest` | 4 | Códigos 06 y 70, reintento sin resultado, transacciones en curso o interrumpidas |
 | `AuthServiceImplTest` | 16 | Login con usuario o correo, mismo mensaje para usuario inexistente y contraseña incorrecta, cliente sin contraseña o dado de baja, bloqueo por intentos y su vencimiento, configuración y activación del A2F, código reutilizado o incorrecto, token temporal inválido |
-| `SeguridadConfigTest` | 6 | Cadena de seguridad real: 401 sin token, token de acceso válido, token temporal y token alterado rechazados, login y alta públicos |
+| `SeguridadConfigTest` | 8 | Cadena de seguridad real: 401 sin token, token de acceso válido, token temporal y token alterado rechazados, login y alta públicos, el pago exige token y toma al cliente del token |
 | `TotpTest` | 7 | Vectores oficiales del RFC 6238, desfase de un paso, código viejo, no reutilización, formato inválido, secreto y URI `otpauth://` |
 | `TokenJwtTest` | 5 | Separación de tokens temporal y de acceso, firma ajena, token mal formado, secreto mínimo de 32 bytes |
 | `ProductoServiceImplTest` | 7 | Lista de productos de PuntoRed: éxito, sin token, token expirado, timeout, servicio no disponible, código de error |
@@ -360,13 +416,16 @@ Conceptos de POO que muestra el diagrama:
 
 ```
 com.proyecto.servicios
-├── controller        ClienteController, CuentaController, AuthController
+├── controller        ClienteController, CuentaController, AuthController, TransaccionController
+├── handler           Handler<I, O>, SendTxHandler (pago con GestoPago), ConfirmTxProceso (confirmTx)
 ├── service           ClienteService, CuentaService, AuthService (interfaces)
-│   └── impl          ClienteServiceImpl, CuentaServiceImpl, AuthServiceImpl
-├── seguridad         TokenJwt (JWT HS256 temporal y de acceso), Totp (RFC 6238), IntentosFallidos
-├── repository.sf     ClienteRepository, CuentaRepository, DomicilioRepository
+│   └── impl          ClienteServiceImpl, CuentaServiceImpl, AuthServiceImpl, RegistroTransacciones
+├── seguridad         TokenJwt (JWT HS256 temporal y de acceso), Totp (RFC 6238), IntentosFallidos,
+│                     CifradoGestoPago (AES-256-CBC)
+├── client            Feign de GestoPago (auth, productos, sendTx/confirmTx) y GestoPagoTxGateway
+├── repository.sf     ClienteRepository, CuentaRepository, DomicilioRepository, TransaccionRepository
 ├── specification     ClienteSpecification, CuentaSpecification
-├── entity.sf         Cliente, Domicilio, Cuenta
+├── entity.sf         Cliente, Domicilio, Cuenta, Transaccion
 ├── enums             Catalogos (Sexo, EstadoCivil, EstatusCuenta, MetodoA2F, PasoLogin)
 ├── dto
 │   ├── request       ClienteCreateRequest, ClienteUpdateRequest, ClienteBusquedaRequest,

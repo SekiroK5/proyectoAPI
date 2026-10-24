@@ -11,6 +11,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Service
@@ -30,16 +32,50 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
     @Value("${gestopago.auth.password}")
     private String password;
 
+    /** El token dura 24 h; se renueva un poco antes para no usarlo justo cuando vence. */
+    @Value("${gestopago.auth.vigencia-horas:23}")
+    private long vigenciaHoras;
+
+    private final Clock clock;
+
     public GestoPagoTokenServiceImpl(GestoPagoAuthClient gestoPagoAuthClient,
                                      GestoPagoTokenRepository tokenRepository,
-                                     GestoPagoTokenMapper tokenMapper) {
+                                     GestoPagoTokenMapper tokenMapper,
+                                     Clock clock) {
         this.gestoPagoAuthClient = gestoPagoAuthClient;
         this.tokenRepository = tokenRepository;
         this.tokenMapper = tokenMapper;
+        this.clock = clock;
+    }
+
+    /**
+     * Revisa cada hora (y al arrancar) si el token vencio. Antes se renovaba en cada ejecucion,
+     * lo que pedia 24 tokens al dia; la documentacion de PuntoRed solo permite uno.
+     */
+    @Override
+    @Scheduled(fixedRateString = "${gestopago.auth.refresh-rate-ms:3600000}", initialDelay = 0)
+    public void renovarSiVence() {
+        Optional<GestoPagoToken> actual = tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
+        if (actual.isPresent() && estaVigente(actual.get())) {
+            return;
+        }
+        renovarToken();
     }
 
     @Override
-    @Scheduled(fixedRateString = "${gestopago.auth.refresh-rate-ms:3600000}", initialDelay = 0)
+    public Optional<String> obtenerTokenVigente() {
+        renovarSiVence();
+        return tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo)
+                .map(GestoPagoToken::getToken);
+    }
+
+    private boolean estaVigente(GestoPagoToken token) {
+        LocalDateTime emitido = token.getFechaActualizacion() != null ? token.getFechaActualizacion() : token.getFechaCreacion();
+        return token.getToken() != null && emitido != null
+                && emitido.plusHours(vigenciaHoras).isAfter(LocalDateTime.now(clock));
+    }
+
+    @Override
     public void renovarToken() {
         if (password == null || password.isBlank()) {
             log.warn("No se configuro GESTOPAGO_PASSWORD; se omite la renovacion del token GestoPago");

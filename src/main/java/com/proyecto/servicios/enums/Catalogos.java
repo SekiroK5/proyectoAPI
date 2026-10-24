@@ -28,6 +28,19 @@ public final class Catalogos {
         ACTIVA, INACTIVA
     }
 
+    // ======================== Pagos GestoPago ========================
+
+    public enum EstatusTransaccion {
+        /** El saldo ya se aparto y la peticion se esta enviando a GestoPago. */
+        PENDIENTE,
+        /** GestoPago respondio codigo 01 (o confirmTx 06): el cargo queda firme. */
+        APLICADA,
+        /** GestoPago rechazo la operacion (o confirmTx 70): el saldo se devolvio. */
+        RECHAZADA,
+        /** No hubo respuesta (timeout o codigo 82): el saldo sigue apartado hasta confirmarla con confirmTx. */
+        PENDIENTE_CONFIRMACION
+    }
+
     // ======================== Inicio de sesion ========================
 
     /** Segundo factor de autenticacion. Huella y reconocimiento facial (WebAuthn) se agregaran aqui. */

@@ -1,6 +1,10 @@
 package com.proyecto.servicios.repository.sf;
 
 import com.proyecto.servicios.entity.sf.Cuenta;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -22,4 +26,12 @@ public interface CuentaRepository extends JpaRepository<Cuenta, Integer>, JpaSpe
     @Override
     @EntityGraph(attributePaths = "cliente")
     Page<Cuenta> findAll(Specification<Cuenta> spec, Pageable pageable);
+
+    /**
+     * SELECT ... FOR UPDATE: bloquea la fila de la cuenta hasta terminar la transaccion, para que dos
+     * pagos simultaneos no lean el mismo saldo y lo dejen negativo.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Cuenta c where c.id = :id")
+    Optional<Cuenta> bloquearPorId(@Param("id") Integer id);
 }
