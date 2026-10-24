@@ -37,6 +37,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -57,11 +60,14 @@ class ClienteServiceImplTest {
     @Mock
     private CuentaRepository cuentaRepository;
 
+    // Costo minimo de BCrypt para que las pruebas sean rapidas
+    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
+
     private ClienteServiceImpl clienteService;
 
     @BeforeEach
     void setUp() {
-        clienteService = new ClienteServiceImpl(clienteRepository, cuentaRepository, new BigDecimal("0.00"));
+        clienteService = new ClienteServiceImpl(clienteRepository, cuentaRepository, passwordEncoder, new BigDecimal("0.00"));
     }
 
     // ======================== Datos de prueba ========================
@@ -88,6 +94,7 @@ class ClienteServiceImplTest {
         req.setEstadoCivil(EstadoCivil.SOLTERO);
         req.setCorreoElectronico(CORREO);
         req.setNombreUsuario("juanperez95");
+        req.setContrasena("Segura#2026");
         req.setTelefonoMovil("4771234567");
         req.setOcupacion("Desarrollador");
         req.setEmpresa("Tech Corp");
@@ -102,7 +109,7 @@ class ClienteServiceImplTest {
         cliente.setActivo(activo);
         cliente.setTelefonoAlternativo("4770000000");
         Cuenta cuenta = new Cuenta();
-        cuenta.setNumeroCuenta("1234567890");
+        cuenta.setNumeroCuenta("1234567890123456");
         cuenta.setSaldo(new BigDecimal("0.00"));
         cuenta.setEstatus(activo ? EstatusCuenta.ACTIVA : EstatusCuenta.INACTIVA);
         cuenta.setCliente(cliente);
@@ -157,9 +164,23 @@ class ClienteServiceImplTest {
         assertThat(res.getStatus()).isEqualTo(HttpStatus.CREATED);
         assertThat(res.getDatos().getId()).isEqualTo(1);
         assertThat(res.getDatos().getActivo()).isTrue();
-        assertThat(res.getDatos().getNumeroCuenta()).hasSize(10).containsOnlyDigits();
+        assertThat(res.getDatos().getNumeroCuenta()).hasSize(16).containsOnlyDigits();
         assertThat(res.getDatos().getSaldoCuenta()).isEqualByComparingTo("0.00");
         assertThat(res.getDatos().getEstatusCuenta()).isEqualTo(EstatusCuenta.ACTIVA);
+    }
+
+    @Test
+    @DisplayName("Guarda la contraseña cifrada con BCrypt, nunca en texto plano")
+    void registrar_guardaContrasenaCifrada() {
+        ArgumentCaptor<Cliente> captor = ArgumentCaptor.forClass(Cliente.class);
+        when(clienteRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+        when(cuentaRepository.save(any(Cuenta.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        clienteService.registrar(altaValida());
+
+        String hash = captor.getValue().getContrasenaHash();
+        assertThat(hash).isNotEqualTo("Segura#2026").hasSize(60);
+        assertThat(passwordEncoder.matches("Segura#2026", hash)).isTrue();
     }
 
     @Test
@@ -177,7 +198,7 @@ class ClienteServiceImplTest {
     @Test
     @DisplayName("No arranca si el saldo inicial configurado es negativo")
     void saldoInicialNegativo() {
-        assertThatThrownBy(() -> new ClienteServiceImpl(clienteRepository, cuentaRepository, new BigDecimal("-1")))
+        assertThatThrownBy(() -> new ClienteServiceImpl(clienteRepository, cuentaRepository, passwordEncoder, new BigDecimal("-1")))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -228,7 +249,7 @@ class ClienteServiceImplTest {
         ApiResponse<ClienteResponse> res = clienteService.consultar(req);
 
         assertThat(res.getCodigo()).isEqualTo(ApiResponse.EXITO);
-        assertThat(res.getDatos().getNumeroCuenta()).isEqualTo("1234567890");
+        assertThat(res.getDatos().getNumeroCuenta()).isEqualTo("1234567890123456");
     }
 
     @Test
@@ -300,7 +321,7 @@ class ClienteServiceImplTest {
         assertThat(res.getApellidoPaterno()).isEqualTo("Pérez");
         assertThat(res.getTelefonoAlternativo()).isEqualTo("4770000000");
         assertThat(res.getCurp()).isEqualTo("PELJ950520HDFRRN01");
-        assertThat(res.getNumeroCuenta()).isEqualTo("1234567890");
+        assertThat(res.getNumeroCuenta()).isEqualTo("1234567890123456");
     }
 
     @Test

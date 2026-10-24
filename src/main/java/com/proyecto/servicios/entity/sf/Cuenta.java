@@ -20,7 +20,7 @@ public class Cuenta {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
-    @Column(name = "numero_cuenta", nullable = false, unique = true, length = 10, updatable = false)
+    @Column(name = "numero_cuenta", nullable = false, unique = true, length = 16, updatable = false)
     private String numeroCuenta;
 
     @OneToOne(fetch = FetchType.LAZY, optional = false)

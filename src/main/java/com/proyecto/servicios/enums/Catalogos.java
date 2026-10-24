@@ -27,4 +27,19 @@ public final class Catalogos {
     public enum EstatusCuenta {
         ACTIVA, INACTIVA
     }
+
+    // ======================== Inicio de sesion ========================
+
+    /** Segundo factor de autenticacion. Huella y reconocimiento facial (WebAuthn) se agregaran aqui. */
+    public enum MetodoA2F {
+        TOTP
+    }
+
+    /** Lo que debe hacer el cliente despues de validar su contrasena. */
+    public enum PasoLogin {
+        /** Aun no tiene segundo factor: debe pedir su secreto y confirmar un primer codigo. */
+        CONFIGURAR_A2F,
+        /** Ya tiene segundo factor: debe enviar el codigo de su app autenticadora. */
+        VERIFICAR_A2F
+    }
 }

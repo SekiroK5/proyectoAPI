@@ -32,5 +32,11 @@ public final class ValidacionPatrones {
 
     public static final String CODIGO_POSTAL = "^\\d{5}$";
 
-    public static final String NUMERO_CUENTA = "^\\d{10}$";
+    public static final String NUMERO_CUENTA = "^\\d{16}$";
+
+    /** 8 a 64 caracteres sin espacios, con al menos una mayuscula, una minuscula, un digito y un caracter especial. */
+    public static final String CONTRASENA = "^(?=.*\\p{Lu})(?=.*\\p{Ll})(?=.*\\d)(?=.*[^\\p{L}\\d])\\S{8,64}$";
+
+    /** Codigo de la app autenticadora (TOTP). */
+    public static final String CODIGO_A2F = "^\\d{6}$";
 }

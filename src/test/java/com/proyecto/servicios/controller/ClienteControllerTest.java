@@ -60,7 +60,7 @@ class ClienteControllerTest {
               "nombre": "Juan", "apellidoPaterno": "Pérez", "apellidoMaterno": "López",
               "fechaNacimiento": "1995-05-20", "curp": "PELJ950520HDFRRN01", "rfc": "PELJ950520AB1",
               "sexo": "M", "nacionalidad": "Mexicana", "estadoCivil": "SOLTERO",
-              "correoElectronico": "juan.perez@correo.com", "nombreUsuario": "juanperez95",
+              "correoElectronico": "juan.perez@correo.com", "nombreUsuario": "juanperez95", "contrasena": "Segura#2026",
               "telefonoMovil": "4771234567", "ocupacion": "Desarrollador", "empresa": "Tech Corp",
               "ingresoMensual": 25000.00,
               "domicilio": { "calle": "Reforma", "numeroExterior": "123", "colonia": "Centro",
@@ -83,7 +83,7 @@ class ClienteControllerTest {
         r.setId(1);
         r.setNombre("Juan");
         r.setCorreoElectronico("juan.perez@correo.com");
-        r.setNumeroCuenta("1234567890");
+        r.setNumeroCuenta("1234567890123456");
         r.setEstatusCuenta(EstatusCuenta.ACTIVA);
         r.setActivo(true);
         return r;
@@ -101,7 +101,7 @@ class ClienteControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.codigo").value(0))
                 .andExpect(jsonPath("$.mensaje").value("Cliente registrado correctamente."))
-                .andExpect(jsonPath("$.datos.numeroCuenta").value("1234567890"))
+                .andExpect(jsonPath("$.datos.numeroCuenta").value("1234567890123456"))
                 .andExpect(jsonPath("$.status").doesNotExist());
     }
 
@@ -282,10 +282,10 @@ class ClienteControllerTest {
     @DisplayName("POST /cuentas/consulta inexistente -> 404 con codigo 1")
     void cuenta_404() throws Exception {
         when(cuentaService.consultar(any()))
-                .thenReturn(ApiResponse.<CuentaResponse>error(HttpStatus.NOT_FOUND, "No existe una cuenta con el número 0000000000."));
+                .thenReturn(ApiResponse.<CuentaResponse>error(HttpStatus.NOT_FOUND, "No existe una cuenta con el número 0000000000000000."));
 
         mockMvc.perform(post("/api/v1/cuentas/consulta").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"numeroCuenta\":\"0000000000\"}"))
+                        .content("{\"numeroCuenta\":\"0000000000000000\"}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.codigo").value(1));
     }
@@ -296,6 +296,6 @@ class ClienteControllerTest {
         mockMvc.perform(post("/api/v1/cuentas/consulta").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"numeroCuenta\":\"12ab\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.mensaje").value(containsString("numeroCuenta=El número de cuenta debe contener exactamente 10 dígitos.")));
+                .andExpect(jsonPath("$.mensaje").value(containsString("numeroCuenta=El número de cuenta debe contener exactamente 16 dígitos.")));
     }
 }

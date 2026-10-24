@@ -16,9 +16,9 @@ import static com.proyecto.servicios.validation.ValidacionPatrones.NUMERO_CUENTA
 @NoArgsConstructor
 public class CuentaConsultaRequest {
 
-    @Schema(example = "1234567890")
+    @Schema(example = "1234567890123456")
     @NotEmpty(message = "El número de cuenta es obligatorio.")
-    @Pattern(regexp = NUMERO_CUENTA, message = "El número de cuenta debe contener exactamente 10 dígitos.")
+    @Pattern(regexp = NUMERO_CUENTA, message = "El número de cuenta debe contener exactamente 16 dígitos.")
     private String numeroCuenta;
 
     public void setNumeroCuenta(String numeroCuenta) {

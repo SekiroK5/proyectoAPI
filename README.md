@@ -17,7 +17,8 @@ Reglas de diseño que sigue la API (según el instrumento de evaluación):
 | Tecnología | Versión |
 |---|---|
 | Java | 17 (compila y corre también con 21) |
-| Spring Boot | 3.3.6 (Web, Data JPA, Validation) |
+| Spring Boot | 3.3.6 (Web, Data JPA, Validation, Security, OAuth2 Resource Server) |
+| Autenticación | JWT HS256 (Nimbus), BCrypt y A2F TOTP (RFC 6238) |
 | Hibernate | 6.5 |
 | PostgreSQL | 16 (requisito mínimo: 14) |
 | Flyway | migraciones versionadas del esquema |
@@ -51,6 +52,8 @@ Reglas de diseño que sigue la API (según el instrumento de evaluación):
    | `V2__create_clientes_onboarding_tables.sql` | Tablas `domicilios`, `clientes` y `cuentas` con PK, FK, UNIQUE e índices |
    | `V3__add_nombre_usuario_to_clientes.sql` | Columna `nombre_usuario` |
    | `V4__reglas_e_indices_onboarding.sql` | Restricciones `CHECK`, relaciones 1:1, índices parciales y limpieza de índices duplicados |
+   | `V5__numero_cuenta_16_digitos.sql` | Número de cuenta de 16 dígitos (las cuentas existentes se completan con ceros a la izquierda) |
+   | `V6__inicio_sesion_y_a2f.sql` | Contraseña cifrada, segundo factor TOTP e intentos fallidos / bloqueo |
 
    (`V1` corresponde al módulo de productos/GestoPago).
 
@@ -82,7 +85,7 @@ erDiagram
     }
     CUENTAS {
         int id PK
-        varchar(10) numero_cuenta UK
+        varchar(16) numero_cuenta UK
         int cliente_id FK
         numeric(15_2) saldo
         varchar(20) estatus
@@ -119,20 +122,47 @@ Para ejecutar las pruebas:
 
 Base: `http://localhost:8081/api/v1`
 
-| Operación | Método | Endpoint | Body | Éxito | Errores |
-|---|---|---|---|---|---|
-| Crear cliente | POST | `/clientes` | `ClienteCreateRequest` | 201 | 400, 409 |
-| Listar clientes | GET | `/clientes` | — | 200 | — |
-| Búsqueda dinámica | POST | `/clientes/busqueda` | `ClienteBusquedaRequest` | 200 | 400 |
-| Consultar por llave compuesta | POST | `/clientes/consulta` | `ClienteConsultaRequest` | 200 | 400, 404 |
-| Actualizar (parcial) | PATCH | `/clientes/actualizacion` | `ClienteUpdateRequest` | 200 | 400, 404, 409 |
-| Eliminar (baja lógica) | DELETE | `/clientes/eliminacion` | `ClienteEliminacionRequest` | 200 | 400, 404, 409 |
-| Consultar cuenta y saldo | POST | `/cuentas/consulta` | `CuentaConsultaRequest` | 200 | 400, 404 |
-| Búsqueda de cuentas | POST | `/cuentas/busqueda` | `CuentaBusquedaRequest` | 200 | 400 |
+La columna **Token** indica si el endpoint exige `Authorization: Bearer <tokenAcceso>`. Sin token (o con uno inválido o vencido) responde **401** con `codigo: 1`.
+
+| Operación | Método | Endpoint | Body | Token | Éxito | Errores |
+|---|---|---|---|---|---|---|
+| Crear cliente | POST | `/clientes` | `ClienteCreateRequest` | No | 201 | 400, 409 |
+| Iniciar sesión (paso 1) | POST | `/auth/login` | `LoginRequest` | No | 200 | 400, 401, 403, 423 |
+| Configurar A2F (primera vez) | POST | `/auth/a2f/configuracion` | `A2fConfiguracionRequest` | No | 200 | 400, 401, 403, 409, 423 |
+| Verificar A2F (paso 2) | POST | `/auth/a2f/verificacion` | `A2fVerificacionRequest` | No | 200 | 400, 401, 403, 409, 423 |
+| Listar clientes | GET | `/clientes` | — | Sí | 200 | 401 |
+| Búsqueda dinámica | POST | `/clientes/busqueda` | `ClienteBusquedaRequest` | Sí | 200 | 400, 401 |
+| Consultar por llave compuesta | POST | `/clientes/consulta` | `ClienteConsultaRequest` | Sí | 200 | 400, 401, 404 |
+| Actualizar (parcial) | PATCH | `/clientes/actualizacion` | `ClienteUpdateRequest` | Sí | 200 | 400, 401, 404, 409 |
+| Eliminar (baja lógica) | DELETE | `/clientes/eliminacion` | `ClienteEliminacionRequest` | Sí | 200 | 400, 401, 404, 409 |
+| Consultar cuenta y saldo | POST | `/cuentas/consulta` | `CuentaConsultaRequest` | Sí | 200 | 400, 401, 404 |
+| Búsqueda de cuentas | POST | `/cuentas/busqueda` | `CuentaBusquedaRequest` | Sí | 200 | 400, 401 |
+
+Fuera de `/api/v1`: `GET /productosList` (catálogo de PuntoRed) es público, y los endpoints anteriores de personas (`/personas`, `/personasActualiza`, `/personasElimina`) exigen token.
+
+### Inicio de sesión con segundo factor (A2F)
+
+El inicio de sesión tiene dos pasos y entrega dos tokens distintos que **no son intercambiables**:
+
+1. **`POST /auth/login`** con `usuario` (nombre de usuario **o** correo) y `contrasena`. Si son correctos, devuelve un `tokenTemporal` (5 minutos) y `siguientePaso`:
+   - `CONFIGURAR_A2F`: el cliente todavía no tiene segundo factor.
+   - `VERIFICAR_A2F`: ya lo tiene; solo falta el código.
+2. **Solo la primera vez:** `POST /auth/a2f/configuracion` con el `tokenTemporal`. Devuelve el `secreto` y la `uriOtpauth`: se escanea como QR (o se captura el secreto a mano) en Google Authenticator, Microsoft Authenticator o cualquier app TOTP.
+3. **`POST /auth/a2f/verificacion`** con el `tokenTemporal` y el `codigo` de 6 dígitos de la app. La primera vez también activa el A2F. Devuelve el `tokenAcceso` (30 minutos), el `nombreUsuario` y el `numeroCuenta`.
+
+Reglas de seguridad:
+
+- La contraseña se guarda cifrada con **BCrypt**; nunca se devuelve ni se registra en el log.
+- Un usuario inexistente y una contraseña incorrecta responden el mismo mensaje y tardan lo mismo, para no revelar qué usuarios existen.
+- **5 intentos fallidos** seguidos (de contraseña o de código) bloquean el inicio de sesión **15 minutos** (423). Se configura con `seguridad.login.*`.
+- Un código TOTP no se acepta dos veces, y se tolera un paso de 30 s de desfase en el reloj del teléfono.
+- El token temporal no abre ningún endpoint protegido, y el token de acceso no sirve para el paso A2F.
+- Los clientes registrados antes de la migración `V6` no tienen contraseña y no pueden iniciar sesión hasta que se les asigne una.
+- Por ahora el único método es TOTP. Huella y reconocimiento facial se agregarían como nuevos valores de `MetodoA2F` usando WebAuthn (passkeys).
 
 ### Reglas por operación
 
-- **Crear:** valida todos los campos con Bean Validation. El cliente debe ser mayor de edad, y CURP, RFC, correo y usuario deben ser únicos (se verifica en el servicio y en la base de datos). El sistema abre una cuenta **ACTIVA** con número único de 10 dígitos y el saldo inicial que define la propiedad `onboarding.cuenta.saldo-inicial`, que no puede ser negativa. Si el cliente envía `id`, `fechaCreacion`, `saldo` o `activo`, esos valores se ignoran.
+- **Crear:** valida todos los campos con Bean Validation. El cliente debe ser mayor de edad, y CURP, RFC, correo y usuario deben ser únicos (se verifica en el servicio y en la base de datos). La `contrasena` debe tener de 8 a 64 caracteres sin espacios, con al menos una mayúscula, una minúscula, un número y un carácter especial. El sistema abre una cuenta **ACTIVA** con número único de **16 dígitos** y el saldo inicial que define la propiedad `onboarding.cuenta.saldo-inicial`, que no puede ser negativa. Si el cliente envía `id`, `fechaCreacion`, `saldo` o `activo`, esos valores se ignoran.
 - **Listar:** devuelve la primera página (20 registros). Para otras páginas o filtros se usa `/busqueda`.
 - **Búsqueda:** todos los criterios son opcionales y se combinan con AND; los que no se envían se excluyen.
   - `nombre`: coincidencia **parcial** sin distinguir mayúsculas, en nombres y apellidos.
@@ -161,7 +191,7 @@ Base: `http://localhost:8081/api/v1`
   "fechaNacimiento": "1995-05-20",
   "curp": "PELJ950520HDFRRN01", "rfc": "PELJ950520AB1",
   "sexo": "M", "nacionalidad": "Mexicana", "estadoCivil": "SOLTERO",
-  "correoElectronico": "juan.perez@correo.com", "nombreUsuario": "juanperez95",
+  "correoElectronico": "juan.perez@correo.com", "nombreUsuario": "juanperez95", "contrasena": "Segura#2026",
   "telefonoMovil": "4771234567", "telefonoAlternativo": "4770000000",
   "ocupacion": "Desarrollador", "empresa": "Tech Solutions", "ingresoMensual": 25000.00,
   "domicilio": {
@@ -180,7 +210,7 @@ Base: `http://localhost:8081/api/v1`
   "datos": {
     "id": 1, "nombre": "Juan", "curp": "PELJ950520HDFRRN01",
     "correoElectronico": "juan.perez@correo.com", "telefonoMovil": "4771234567",
-    "numeroCuenta": "3413748382", "saldoCuenta": "0.00", "estatusCuenta": "ACTIVA",
+    "numeroCuenta": "4152313748382907", "saldoCuenta": "0.00", "estatusCuenta": "ACTIVA",
     "activo": true, "fechaCreacion": "2026-10-16T18:38:46.91"
   }
 }
@@ -248,9 +278,9 @@ Este ejemplo cambia el estado civil, el código postal y el correo, y **borra** 
 ### Consultar saldo — `POST /api/v1/cuentas/consulta`
 
 ```json
-{ "numeroCuenta": "3413748382" }
+{ "numeroCuenta": "4152313748382907" }
 ```
-**200 OK**: `{ "codigo": 0, "mensaje": "Cuenta encontrada.", "datos": { "numeroCuenta": "3413748382", "saldo": "0.00", "estatus": "ACTIVA", ... } }`
+**200 OK**: `{ "codigo": 0, "mensaje": "Cuenta encontrada.", "datos": { "numeroCuenta": "4152313748382907", "saldo": "0.00", "estatus": "ACTIVA", ... } }`
 
 ### Respuestas de error
 
@@ -259,28 +289,38 @@ Todas las respuestas de la API tienen la forma `{ "codigo", "mensaje", "datos" }
 | HTTP | Quién la genera | Cuándo |
 |---|---|---|
 | 400 | `GlobalExceptionHandler.dtoValidation` | Falla alguna validación de Bean Validation (`@Valid`). El mensaje lista cada campo con su error |
+| 401 | `SeguridadConfig` (`codigo: 1`) | Endpoint protegido sin token de acceso, o con uno inválido, vencido o temporal |
+| 401 | Servicio (`codigo: 1`) | Usuario o contraseña incorrectos, código A2F inválido o token temporal vencido |
+| 403 | Servicio (`codigo: 1`) | Inicio de sesión de un cliente dado de baja |
 | 404 | Servicio (`codigo: 1`) | No hay cliente con ese nombre y correo, o no existe la cuenta |
-| 409 | Servicio (`codigo: 1`) | CURP, RFC, correo o usuario repetido; cliente ya dado de baja |
+| 409 | Servicio (`codigo: 1`) | CURP, RFC, correo o usuario repetido; cliente ya dado de baja; A2F ya configurado o sin configurar |
+| 423 | Servicio (`codigo: 1`) | Inicio de sesión bloqueado temporalmente por intentos fallidos |
 | 400 / 405 / 415 / 500 | Spring Boot (respuesta por defecto) | JSON mal formado, método o tipo de contenido no soportado, error inesperado. Se configuró `server.error.include-stacktrace=never` (y `include-message`/`include-exception` desactivados), así que nunca se exponen trazas ni detalles internos |
 
 ## 7. Consumo de los servicios REST
 
 - Todas las peticiones con cuerpo usan el encabezado `Content-Type: application/json` y texto en UTF-8.
 - Todas las respuestas tienen la forma `{ "codigo", "mensaje", "datos" }`. El consumidor revisa primero el código HTTP y `codigo` (0 = éxito, 1 = error) y después lee `datos` o muestra `mensaje`.
-- La forma más sencilla de probar es **Swagger UI**: muestra cada endpoint con su DTO de ejemplo y el botón *Try it out*.
-- Con curl:
+- La forma más sencilla de probar es **Swagger UI**: muestra cada endpoint con su DTO de ejemplo y el botón *Try it out*. Después de iniciar sesión, pegue el `tokenAcceso` en el botón **Authorize**.
+- Con curl, los endpoints protegidos llevan el token de acceso:
   ```bash
-  curl -X POST http://localhost:8081/api/v1/clientes/consulta -H "Content-Type: application/json" -d "{\"nombre\":\"Juan\",\"correoElectronico\":\"juan.perez@correo.com\"}"
+  curl -X POST http://localhost:8081/api/v1/clientes/consulta -H "Content-Type: application/json" -H "Authorization: Bearer <tokenAcceso>" -d "{\"nombre\":\"Juan\",\"correoElectronico\":\"juan.perez@correo.com\"}"
   ```
-- Con Postman: elegir el método, la URL `http://localhost:8081/api/v1/...` y en *Body* seleccionar *raw → JSON*. `DELETE /eliminacion` también lleva cuerpo.
+- Con Postman: elegir el método, la URL `http://localhost:8081/api/v1/...` y en *Body* seleccionar *raw → JSON*. En *Authorization* elegir *Bearer Token*. `DELETE /eliminacion` también lleva cuerpo.
+- El secreto JWT se toma de la variable de entorno `JWT_SECRETO` (mínimo 32 caracteres). El valor por defecto de `application.properties` es solo para desarrollo local.
 
 ## 8. Evidencia de pruebas realizadas
 
-### Pruebas automatizadas (`.\gradlew.bat test`): 41 pruebas de la API, todas aprobadas
+### Pruebas automatizadas (`.\gradlew.bat test`): 83 pruebas, todas aprobadas
 
 | Suite | Pruebas | Qué cubre |
 |---|---|---|
-| `ClienteServiceImplTest` | 21 | Alta con cuenta ACTIVA, reintento del número de cuenta, saldo inicial inválido, CURP/RFC/correo/usuario duplicados (codigo 1 + 409), cliente inexistente (codigo 1 + 404), consulta por llave compuesta, búsqueda paginada, actualización parcial, `null` explícito vs omitido, cambio de correo, correo duplicado, cliente inactivo, reactivación, baja lógica |
+| `AuthServiceImplTest` | 16 | Login con usuario o correo, mismo mensaje para usuario inexistente y contraseña incorrecta, cliente sin contraseña o dado de baja, bloqueo por intentos y su vencimiento, configuración y activación del A2F, código reutilizado o incorrecto, token temporal inválido |
+| `SeguridadConfigTest` | 6 | Cadena de seguridad real: 401 sin token, token de acceso válido, token temporal y token alterado rechazados, login y alta públicos |
+| `TotpTest` | 7 | Vectores oficiales del RFC 6238, desfase de un paso, código viejo, no reutilización, formato inválido, secreto y URI `otpauth://` |
+| `TokenJwtTest` | 5 | Separación de tokens temporal y de acceso, firma ajena, token mal formado, secreto mínimo de 32 bytes |
+| `ProductoServiceImplTest` | 7 | Lista de productos de PuntoRed: éxito, sin token, token expirado, timeout, servicio no disponible, código de error |
+| `ClienteServiceImplTest` | 22 | Alta con cuenta ACTIVA de 16 dígitos y contraseña cifrada con BCrypt, reintento del número de cuenta, saldo inicial inválido, CURP/RFC/correo/usuario duplicados (codigo 1 + 409), cliente inexistente (codigo 1 + 404), consulta por llave compuesta, búsqueda paginada, actualización parcial, `null` explícito vs omitido, cambio de correo, correo duplicado, cliente inactivo, reactivación, baja lógica |
 | `CuentaServiceImplTest` | 3 | Saldo, cuenta inexistente, cuentas activas |
 | `ClienteControllerTest` | 17 | Códigos HTTP, mensajes de validación por campo (incluida la mayoría de edad), campos del servidor ignorados, enum inválido, paginación máxima, rango de fechas, PATCH con `null` vs omitido, PATCH sin cambios, CURP/RFC/cuenta no modificables, errores de negocio con codigo 1 |
 
@@ -288,7 +328,7 @@ El reporte HTML queda en `build/reports/tests/test/index.html`.
 
 ### Pruebas manuales contra PostgreSQL 16
 
-Se ejecutaron sobre la API real y todas respondieron lo esperado:
+Se ejecutaron sobre la API real, antes de agregar el inicio de sesión, y todas respondieron lo esperado (el inicio de sesión y el A2F solo están cubiertos por las pruebas automatizadas):
 
 - **Crear:** 201 con `codigo: 0`; al repetir la CURP, 409 con `codigo: 1`.
 - **Listar:** GET con la página 1.
@@ -320,22 +360,25 @@ Conceptos de POO que muestra el diagrama:
 
 ```
 com.proyecto.servicios
-├── controller        ClienteController, CuentaController
-├── service           ClienteService, CuentaService (interfaces)
-│   └── impl          ClienteServiceImpl, CuentaServiceImpl
+├── controller        ClienteController, CuentaController, AuthController
+├── service           ClienteService, CuentaService, AuthService (interfaces)
+│   └── impl          ClienteServiceImpl, CuentaServiceImpl, AuthServiceImpl
+├── seguridad         TokenJwt (JWT HS256 temporal y de acceso), Totp (RFC 6238), IntentosFallidos
 ├── repository.sf     ClienteRepository, CuentaRepository, DomicilioRepository
 ├── specification     ClienteSpecification, CuentaSpecification
 ├── entity.sf         Cliente, Domicilio, Cuenta
-├── enums             Catalogos (Sexo, EstadoCivil, EstatusCuenta)
+├── enums             Catalogos (Sexo, EstadoCivil, EstatusCuenta, MetodoA2F, PasoLogin)
 ├── dto
 │   ├── request       ClienteCreateRequest, ClienteUpdateRequest, ClienteBusquedaRequest,
 │   │                 ClienteConsultaRequest, ClienteEliminacionRequest, ClienteLlaveRequest,
 │   │                 PaginacionRequest, DomicilioRequest, DomicilioUpdateRequest,
-│   │                 CuentaConsultaRequest, CuentaBusquedaRequest
+│   │                 CuentaConsultaRequest, CuentaBusquedaRequest, LoginRequest,
+│   │                 A2fTokenRequest, A2fConfiguracionRequest, A2fVerificacionRequest
 │   └── response      GenericResponse, ApiResponse, PaginaResponse, ClienteResponse,
-│                     DomicilioResponse, CuentaResponse
+│                     DomicilioResponse, CuentaResponse, LoginResponse,
+│                     A2fConfiguracionResponse, TokenResponse
 ├── exception         GlobalExceptionHandler (manejo único de validaciones)
 ├── validation        @MayorDeEdad y su validador, expresiones regulares compartidas
 ├── mapper            ClienteMapper (DTO <-> entidad)
-└── config            Base de datos, Flyway, OpenAPI
+└── config            Base de datos, Flyway, OpenAPI, Feign, seguridad (SeguridadConfig)
 ```

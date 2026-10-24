@@ -32,6 +32,16 @@ public interface ClienteRepository extends JpaRepository<Cliente, Integer>, JpaS
     Optional<Cliente> findByNombreIgnoreCaseAndCorreoElectronico(String nombre, String correoElectronico);
 
     /**
+     * Inicio de sesion: el mismo valor se compara contra el usuario y contra el correo (ambos en minusculas
+     * y UNIQUE). Carga la cuenta para devolver su numero al iniciar sesion.
+     */
+    @EntityGraph(attributePaths = {"cuenta"})
+    Optional<Cliente> findByNombreUsuarioOrCorreoElectronico(String nombreUsuario, String correoElectronico);
+
+    @EntityGraph(attributePaths = {"cuenta"})
+    Optional<Cliente> findConCuentaById(Integer id);
+
+    /**
      * Busqueda dinamica paginada; carga domicilio y cuenta en la misma consulta para evitar N+1.
      */
     @Override
