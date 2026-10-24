@@ -1,7 +1,7 @@
 package com.proyecto.servicios.controller;
 
 import com.proyecto.servicios.model.EliminaPersonaRequest;
-import com.proyecto.servicios.model.GenericResponse;
+import com.proyecto.servicios.dto.response.GenericResponse;
 import com.proyecto.servicios.model.PersonasRequest;
 import com.proyecto.servicios.service.PersonaService;
 import jakarta.validation.Valid;

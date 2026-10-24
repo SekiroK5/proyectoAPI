@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/productos")
+@RequestMapping("/productosList")
 @Slf4j
 public class ProductoController {
 
@@ -30,7 +30,7 @@ public class ProductoController {
      */
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<List<ProductoDto>> obtenerProductos() {
-        log.info("Solicitud recibida: GET /productos");
+        log.info("Solicitud recibida: GET /productosList");
         List<ProductoDto> productos = productoService.obtenerProductos();
         log.info("Retornando {} productos", productos.size());
         return ResponseEntity.ok(productos);

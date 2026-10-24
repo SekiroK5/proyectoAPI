@@ -32,7 +32,13 @@ public class FlywayConfig {
                 .schemas(schema)
                 .baselineOnMigrate(true)
                 .baselineVersion("0")
+                .validateMigrationNaming(true)
                 .load();
+        try {
+            flyway.repair();
+        } catch (Exception e) {
+            log.warn("No se pudo ejecutar flyway.repair(): {}", e.getMessage());
+        }
         flyway.migrate();
         return flyway;
     }
