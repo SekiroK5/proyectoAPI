@@ -7,6 +7,10 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -40,6 +44,16 @@ public interface ClienteRepository extends JpaRepository<Cliente, Integer>, JpaS
 
     @EntityGraph(attributePaths = {"cuenta"})
     Optional<Cliente> findConCuentaById(Integer id);
+
+    /**
+     * Marca como usado el paso TOTP de forma atomica: solo actualiza si es posterior al ultimo usado.
+     * Si dos peticiones llegan al mismo tiempo con el mismo codigo, solo una obtiene 1; la otra obtiene 0.
+     */
+    @Modifying
+    @Transactional("sfTransactionManager")
+    @Query("update Cliente c set c.a2fUltimoPaso = :paso "
+            + "where c.id = :id and (c.a2fUltimoPaso is null or c.a2fUltimoPaso < :paso)")
+    int marcarPasoA2F(@Param("id") Integer id, @Param("paso") long paso);
 
     /**
      * Busqueda dinamica paginada; carga domicilio y cuenta en la misma consulta para evitar N+1.

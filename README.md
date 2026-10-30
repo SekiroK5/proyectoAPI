@@ -9,7 +9,7 @@ Reglas de diseño que sigue la API (según el instrumento de evaluación):
 - No se usa `@PathVariable` ni `@RequestParam`: todos los datos llegan en el cuerpo como Request DTOs validados con `@Valid`.
 - Los clientes se localizan con la **llave compuesta nombre + correo electrónico**. No hay consulta por ID; el ID sigue siendo la llave primaria en la base de datos.
 - Las búsquedas usan **un solo endpoint dinámico** construido con `Specification` de Spring Data JPA, paginado y resuelto en la base de datos (no en memoria).
-- Los errores de validación se manejan en un solo lugar: `GlobalExceptionHandler` (`@RestControllerAdvice`) con un único método `@ExceptionHandler`. Los errores de negocio (no encontrado, duplicado, etc.) no usan excepciones: el servicio responde con `codigo: 1`, el mensaje y el código HTTP correspondiente.
+- Las excepciones se manejan en un solo lugar: `GlobalExceptionHandler` (`@RestControllerAdvice`) con un único método `@ExceptionHandler` que atiende validaciones, JSON mal formado, errores de Spring MVC y errores inesperados, siempre con el formato `{codigo, mensaje}` y sin exponer detalles internos. Los errores de negocio (no encontrado, duplicado, etc.) no usan excepciones: el servicio responde con `codigo: 1`, el mensaje y el código HTTP correspondiente.
 - Los controladores nunca reciben ni devuelven entidades JPA.
 
 ## 2. Tecnologías utilizadas
@@ -181,7 +181,7 @@ Cuerpo (también acepta los nombres del diagrama `idSer`, `idProd` y `2fa`):
 
 Flujo:
 
-1. **Validaciones previas:** la cuenta existe y **es del usuario de la sesión** (403 si no), cliente y cuenta activos, **saldo** suficiente, el producto está en el catálogo (`/productosList`) y cumple sus reglas, y el **código 2FA** es válido. Un código incorrecto cuenta para el mismo bloqueo de 5 intentos que el inicio de sesión, y un código no autoriza dos pagos.
+1. **Validaciones previas:** la cuenta existe y **es del usuario de la sesión** (403 si no), cliente y cuenta activos, **saldo** suficiente, el producto está en el catálogo (`/productosList`) y cumple sus reglas, y el **código 2FA** es válido. Un código incorrecto cuenta para el mismo bloqueo de 5 intentos que el inicio de sesión, y un código no autoriza dos pagos: se marca como usado con un `UPDATE` condicional en la base de datos **antes** de apartar el saldo, así que si llegan dos peticiones iguales al mismo tiempo (doble clic o reintento automático) solo una pasa y la otra responde 409 sin cobrar.
 2. **Payload SendTx**, con los nombres, el orden y las longitudes de la documentación: `idProducto`, `idServicio`, `telefono` (10–20), `horaLocal` (`yyyyMMddHHmmss`, hora de Ciudad de México), `referencia` (1–100) y `montoPago` solo en pago de servicios, `upc` (cadena aleatoria de 10 caracteres alfanuméricos, única) y `unidad` (3–25).
    - **tipoFront 1** (recargas): el teléfono va en `telefono` y el monto debe ser igual al precio del producto.
    - **tipoFront 2** (servicios): `telefono` fijo `1111111111`, y `referencia` y `montoPago` obligatorios.
@@ -196,7 +196,11 @@ Flujo:
    | GestoPago | Estatus | HTTP | Saldo |
    |---|---|---|---|
    | Código `01` | `APLICADA` | 200 *Pago exitoso.* | Queda descontado |
-   | Otro código (p. ej. `02`, `06`) | `RECHAZADA` | 422 con el texto de GestoPago | Se devuelve |
+   | Código `02` (saldo del distribuidor con PuntoRed) | `RECHAZADA` | 503 con mensaje propio | Se devuelve |
+   | Código `06` (duplicada en GestoPago) | `RECHAZADA` | 409 con mensaje propio | Se devuelve |
+   | Otro código | `RECHAZADA` | 422 con mensaje propio | Se devuelve |
+
+   Como pide la documentación (*"the failure cases must be mapped to the error codes on your application side"*), `RechazoGestoPago` traduce cada código a un mensaje propio que incluye la referencia `GP-xx`. El texto original de GestoPago solo se guarda en la bitácora.
    | Código `82` o sin respuesta | `PENDIENTE_CONFIRMACION` | 202 | Sigue apartado |
    | No se pudo enviar (sin token) | `RECHAZADA` | 503 | Se devuelve |
 
@@ -343,10 +347,11 @@ Todas las respuestas de la API tienen la forma `{ "codigo", "mensaje", "datos" }
 | 403 | Servicio (`codigo: 1`) | Inicio de sesión de un cliente dado de baja |
 | 404 | Servicio (`codigo: 1`) | No hay cliente con ese nombre y correo, o no existe la cuenta |
 | 409 | Servicio (`codigo: 1`) | CURP, RFC, correo o usuario repetido; cliente ya dado de baja; A2F ya configurado o sin configurar |
+| 409 | Handler (`codigo: 1`) | Código 2FA en uso por otra petición simultánea, u operación duplicada en GestoPago (código 06) |
 | 422 | Handler (`codigo: 1`) | GestoPago rechazó el pago, o el tipo de producto no se puede pagar |
 | 423 | Servicio (`codigo: 1`) | Inicio de sesión o pagos bloqueados temporalmente por intentos fallidos |
-| 503 | Handler (`codigo: 1`) | No fue posible conectar con GestoPago o su catálogo; no se hizo ningún cargo |
-| 400 / 405 / 415 / 500 | Spring Boot (respuesta por defecto) | JSON mal formado, método o tipo de contenido no soportado, error inesperado. Se configuró `server.error.include-stacktrace=never` (y `include-message`/`include-exception` desactivados), así que nunca se exponen trazas ni detalles internos |
+| 503 | Handler (`codigo: 1`) | No fue posible conectar con GestoPago o su catálogo, o falta saldo del distribuidor (código 02); no se hizo ningún cargo |
+| 400 / 404 / 405 / 415 / 500 | `GlobalExceptionHandler` (`codigo: 1`) | JSON mal formado, ruta inexistente, método o tipo de contenido no soportado, error inesperado. El detalle técnico solo va al log del servidor; además `server.error.include-stacktrace=never` cubre los errores que ocurren fuera de los controladores |
 
 ## 7. Consumo de los servicios REST
 
@@ -362,11 +367,13 @@ Todas las respuestas de la API tienen la forma `{ "codigo", "mensaje", "datos" }
 
 ## 8. Evidencia de pruebas realizadas
 
-### Pruebas automatizadas (`.\gradlew.bat test`): 127 pruebas, todas aprobadas
+### Pruebas automatizadas (`.\gradlew.bat test`): 139 pruebas, todas aprobadas
 
 | Suite | Pruebas | Qué cubre |
 |---|---|---|
-| `SendTxHandlerTest` | 19 | Cuenta inexistente o ajena, cliente o cuenta inactivos, saldo insuficiente (también entre pagos simultáneos), producto fuera del catálogo, reglas de tipoFront y teléfonos fijos, 2FA incorrecto, sin configurar o reutilizado, payload exacto, éxito, rechazo, código 82, sin respuesta y no enviada |
+| `SendTxHandlerTest` | 22 | Cuenta inexistente o ajena, cliente o cuenta inactivos, saldo insuficiente (también entre pagos simultáneos), producto fuera del catálogo, reglas de tipoFront y teléfonos fijos, 2FA incorrecto, sin configurar, reutilizado o en uso por un doble clic, payload exacto, éxito, rechazos 02/06/otros con mensaje propio, código 82, sin respuesta y no enviada |
+| `GestoPagoTxIntegracionTest` | 5 | **Integración** con WireMock (Feign + cifrado + gateway reales): POST urlencoded con `random`/`signed`, `Authorization` y `X-API-Key`, payload cifrado en la red, 403 → token renovado, timeout de lectura, código 82, confirmTx con el mismo `signed` |
+| `GlobalExceptionHandlerTest` | 4 | JSON mal formado, `ResponseStatusException`, 405 y error inesperado sin exponer detalles internos |
 | `GestoPagoTxGatewayTest` | 7 | Formulario `random` + `signed` y token Bearer, reintento con token renovado tras 403, timeout, sin token, XML ilegible, `ID_TX` de confirmTx |
 | `CifradoGestoPagoTest` | 6 | Vector oficial de la documentación con el snippet `AesEncryption` y con `CifradoGestoPago`, UTF-8, sin llaves configuradas, longitudes de llave e IV |
 | `RegistroTransaccionesTest` | 6 | Saldo apartado, saldo insuficiente, bitácora de la respuesta, devolución una sola vez, nunca revertir una aplicada |
@@ -417,7 +424,8 @@ Conceptos de POO que muestra el diagrama:
 ```
 com.proyecto.servicios
 ├── controller        ClienteController, CuentaController, AuthController, TransaccionController
-├── handler           Handler<I, O>, SendTxHandler (pago con GestoPago), ConfirmTxProceso (confirmTx)
+├── handler           Handler<I, O>, SendTxHandler (pago con GestoPago), ConfirmTxProceso (confirmTx),
+│                     RechazoGestoPago (códigos de GestoPago → mensajes propios)
 ├── service           ClienteService, CuentaService, AuthService (interfaces)
 │   └── impl          ClienteServiceImpl, CuentaServiceImpl, AuthServiceImpl, RegistroTransacciones
 ├── seguridad         TokenJwt (JWT HS256 temporal y de acceso), Totp (RFC 6238), IntentosFallidos,
@@ -436,7 +444,7 @@ com.proyecto.servicios
 │   └── response      GenericResponse, ApiResponse, PaginaResponse, ClienteResponse,
 │                     DomicilioResponse, CuentaResponse, LoginResponse,
 │                     A2fConfiguracionResponse, TokenResponse
-├── exception         GlobalExceptionHandler (manejo único de validaciones)
+├── exception         GlobalExceptionHandler (manejo centralizado de excepciones)
 ├── validation        @MayorDeEdad y su validador, expresiones regulares compartidas
 ├── mapper            ClienteMapper (DTO <-> entidad)
 └── config            Base de datos, Flyway, OpenAPI, Feign, seguridad (SeguridadConfig)

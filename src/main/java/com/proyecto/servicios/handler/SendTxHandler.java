@@ -11,7 +11,9 @@ import com.proyecto.servicios.entity.sf.Cliente;
 import com.proyecto.servicios.entity.sf.Cuenta;
 import com.proyecto.servicios.entity.sf.Transaccion;
 import com.proyecto.servicios.enums.Catalogos.EstatusCuenta;
+import com.proyecto.servicios.enums.Catalogos.EstatusTransaccion;
 import com.proyecto.servicios.model.producto.ProductoDto;
+import com.proyecto.servicios.repository.sf.ClienteRepository;
 import com.proyecto.servicios.repository.sf.CuentaRepository;
 import com.proyecto.servicios.repository.sf.TransaccionRepository;
 import com.proyecto.servicios.seguridad.IntentosFallidos;
@@ -62,6 +64,7 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     static final String MSG_PRODUCTO = "El servicio y producto indicados no están en el catálogo de GestoPago.";
     static final String MSG_A2F_SIN_CONFIGURAR = "Configure su segundo factor antes de realizar pagos.";
     static final String MSG_A2F_INVALIDO = "El código 2FA no es válido o ya fue utilizado.";
+    static final String MSG_A2F_EN_USO = "Ya hay una operación en proceso con este código 2FA. Consulte su saldo antes de reintentar.";
     static final String MSG_PAGO_EXITOSO = "Pago exitoso.";
     static final String MSG_POR_CONFIRMAR = "GestoPago no respondió a tiempo. El monto queda apartado mientras se confirma la operación.";
 
@@ -73,6 +76,7 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     private static final int TIPO_FRONT_SERVICIO = 2;
 
     private final CuentaRepository cuentaRepository;
+    private final ClienteRepository clienteRepository;
     private final TransaccionRepository transaccionRepository;
     private final ProductoService productoService;
     private final Totp totp;
@@ -85,6 +89,7 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     private final SecureRandom random = new SecureRandom();
 
     public SendTxHandler(CuentaRepository cuentaRepository,
+                         ClienteRepository clienteRepository,
                          TransaccionRepository transaccionRepository,
                          ProductoService productoService,
                          Totp totp,
@@ -99,6 +104,7 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
             throw new IllegalStateException("gestopago.tx.unidad debe tener de 3 a 25 caracteres");
         }
         this.cuentaRepository = cuentaRepository;
+        this.clienteRepository = clienteRepository;
         this.transaccionRepository = transaccionRepository;
         this.productoService = productoService;
         this.totp = totp;
@@ -192,8 +198,10 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
             return ApiResponse.exito(HttpStatus.OK, MSG_PAGO_EXITOSO, aResponse(aplicada));
         }
         Transaccion rechazada = registro.rechazar(tx.getId(), resultado);
-        return ApiResponse.error(HttpStatus.UNPROCESSABLE_ENTITY, "GestoPago rechazó la operación (código "
-                + rechazada.getCodigoRespuesta() + "): " + rechazada.getTextoRespuesta() + " No se realizó ningún cargo.");
+        // El texto original de GestoPago queda en la bitacora; al cliente se le responde con un mensaje propio
+        RechazoGestoPago rechazo = RechazoGestoPago.de(rechazada.getCodigoRespuesta());
+        log.info("Transaccion ID={} rechazada por GestoPago codigo={}", rechazada.getId(), rechazada.getCodigoRespuesta());
+        return ApiResponse.error(rechazo.status(), rechazo.mensaje(rechazada.getCodigoRespuesta()));
     }
 
     /**
@@ -250,7 +258,12 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         if (paso < 0) {
             return intentosFallidos.registrarFallo(cliente, MSG_A2F_INVALIDO);
         }
-        // Guarda el paso usado para que el mismo codigo no autorice otro pago
+        // Marca el codigo como usado en la base de datos antes de apartar el saldo. Si dos peticiones
+        // iguales llegan juntas (doble clic, reintento automatico) solo una lo logra: evita el doble cobro.
+        if (clienteRepository.marcarPasoA2F(cliente.getId(), paso) == 0) {
+            log.warn("Codigo 2FA ya usado por otra peticion simultanea del cliente ID={}", cliente.getId());
+            return ApiResponse.error(HttpStatus.CONFLICT, MSG_A2F_EN_USO);
+        }
         cliente.setA2fUltimoPaso(paso);
         intentosFallidos.reiniciar(cliente);
         return null;
@@ -305,7 +318,10 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         res.setIdTx(tx.getIdTx());
         res.setPin(tx.getPin());
         res.setCodigoGestoPago(tx.getCodigoRespuesta());
-        res.setMensajeGestoPago(tx.getTextoRespuesta());
+        // Solo el texto de exito; un error interno (timeout, red) no se expone al cliente
+        if (tx.getEstatus() == EstatusTransaccion.APLICADA) {
+            res.setMensajeGestoPago(tx.getTextoRespuesta());
+        }
         res.setFecha(tx.getFechaCreacion());
         return res;
     }

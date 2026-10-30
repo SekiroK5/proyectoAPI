@@ -58,6 +58,8 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+    // Servidor HTTP simulado de GestoPago para las pruebas de integracion (version shaded: no choca con Jetty/Jackson de Boot)
+    testImplementation 'org.wiremock:wiremock-standalone:3.9.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

@@ -40,6 +40,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -70,7 +71,7 @@ class SendTxHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new SendTxHandler(cuentaRepository, transaccionRepository, productoService, totp,
+        handler = new SendTxHandler(cuentaRepository, clienteRepository, transaccionRepository, productoService, totp,
                 new IntentosFallidos(clienteRepository, RELOJ, 5, 15), registro, gateway,
                 new ObjectMapper(), RELOJ, "083", "America/Mexico_City");
 
@@ -88,6 +89,15 @@ class SendTxHandlerTest {
         cuenta.setCliente(cliente);
 
         lenient().when(cuentaRepository.findByNumeroCuenta(NUMERO_CUENTA)).thenReturn(Optional.of(cuenta));
+        // Simula el UPDATE condicional: solo marca el paso si es posterior al ultimo usado
+        lenient().when(clienteRepository.marcarPasoA2F(eq(CLIENTE_ID), anyLong())).thenAnswer(inv -> {
+            long paso = inv.getArgument(1);
+            if (cliente.getA2fUltimoPaso() != null && cliente.getA2fUltimoPaso() >= paso) {
+                return 0;
+            }
+            cliente.setA2fUltimoPaso(paso);
+            return 1;
+        });
         lenient().when(productoService.obtenerProductos()).thenReturn(List.of(
                 producto(133, 582, 1, 2, 10.0),      // recarga Telcel $10
                 producto(76, 205, 2, 5, 10.0),       // pago de servicio
@@ -300,6 +310,21 @@ class SendTxHandlerTest {
         assertThat(ejecutar(req).getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
+    @Test
+    @DisplayName("Doble clic: si otra petición simultánea ya usó el código, 409 y no se aparta saldo")
+    void dobleClic_codigoEnUso() {
+        TransaccionRequest req = recarga();
+        // La otra peticion marco el paso en la base de datos despues de que esta leyo al cliente
+        when(clienteRepository.marcarPasoA2F(eq(CLIENTE_ID), anyLong())).thenReturn(0);
+
+        ApiResponse<TransaccionResponse> res = ejecutar(req);
+
+        assertThat(res.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(res.getMensaje()).isEqualTo(SendTxHandler.MSG_A2F_EN_USO);
+        verify(registro, never()).apartarSaldo(any(), any());
+        verify(gateway, never()).enviar(anyString());
+    }
+
     // ======================== Envío y respuesta ========================
 
     @Test
@@ -355,16 +380,41 @@ class SendTxHandlerTest {
     }
 
     @Test
-    @DisplayName("GestoPago rechaza (código 02): 422, saldo devuelto")
-    void rechazada() {
+    @DisplayName("Código 02 (saldo del distribuidor): 503 con mensaje propio, sin exponer el texto de GestoPago")
+    void rechazada_saldoDistribuidor() {
         registroCierraCon(EstatusTransaccion.RECHAZADA);
         when(gateway.enviar(anyString())).thenReturn(respuesta("02", "Saldo insuficiente"));
 
         ApiResponse<TransaccionResponse> res = ejecutar(recarga());
 
-        assertThat(res.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
-        assertThat(res.getMensaje()).contains("código 02", "Saldo insuficiente", "No se realizó ningún cargo");
+        assertThat(res.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(res.getMensaje()).contains("no está disponible", "No se realizó ningún cargo", "GP-02")
+                .doesNotContain("Saldo insuficiente");
         verify(registro).rechazar(eq(99), any());
+    }
+
+    @Test
+    @DisplayName("Código 06 (duplicada en GestoPago): 409")
+    void rechazada_duplicada() {
+        registroCierraCon(EstatusTransaccion.RECHAZADA);
+        when(gateway.enviar(anyString())).thenReturn(respuesta("06", "Transaccion aplicada anteriormente"));
+
+        ApiResponse<TransaccionResponse> res = ejecutar(recarga());
+
+        assertThat(res.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(res.getMensaje()).contains("operación igual", "GP-06");
+    }
+
+    @Test
+    @DisplayName("Otro código de rechazo: 422 con mensaje genérico propio")
+    void rechazada_otroCodigo() {
+        registroCierraCon(EstatusTransaccion.RECHAZADA);
+        when(gateway.enviar(anyString())).thenReturn(respuesta("13", "Referencia invalida para el servicio XYZ"));
+
+        ApiResponse<TransaccionResponse> res = ejecutar(recarga());
+
+        assertThat(res.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(res.getMensaje()).contains("GP-13").doesNotContain("XYZ");
     }
 
     @Test
@@ -377,6 +427,7 @@ class SendTxHandlerTest {
 
         assertThat(res.getStatus()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(res.getDatos().getEstatus()).isEqualTo(EstatusTransaccion.PENDIENTE_CONFIRMACION);
+        assertThat(res.getDatos().getMensajeGestoPago()).isNull();
         verify(registro).marcarPorConfirmar(eq(99), any());
         verify(registro, never()).rechazar(any(), any());
     }
