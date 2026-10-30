@@ -8,6 +8,7 @@ import com.proyecto.servicios.dto.response.PaginaResponse;
 import com.proyecto.servicios.enums.Catalogos.EstatusCuenta;
 import com.proyecto.servicios.exception.GlobalExceptionHandler;
 import com.proyecto.servicios.service.ClienteService;
+import com.proyecto.servicios.handler.DepositoHandler;
 import com.proyecto.servicios.service.CuentaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,6 +54,9 @@ class ClienteControllerTest {
     @Mock
     private CuentaService cuentaService;
 
+    @Mock
+    private DepositoHandler depositoHandler;
+
     private MockMvc mockMvc;
 
     private static final String ALTA_VALIDA = """
@@ -73,7 +77,7 @@ class ClienteControllerTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new ClienteController(clienteService), new CuentaController(cuentaService))
+                .standaloneSetup(new ClienteController(clienteService), new CuentaController(cuentaService, depositoHandler))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

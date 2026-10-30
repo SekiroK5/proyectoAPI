@@ -19,6 +19,7 @@ import com.proyecto.servicios.repository.sf.CuentaRepository;
 import com.proyecto.servicios.repository.sf.TransaccionRepository;
 import com.proyecto.servicios.seguridad.IntentosFallidos;
 import com.proyecto.servicios.seguridad.Totp;
+import com.proyecto.servicios.seguridad.ValidadorA2F;
 import com.proyecto.servicios.service.ProductoService;
 import com.proyecto.servicios.service.impl.RegistroTransacciones;
 import org.apache.commons.codec.binary.Base32;
@@ -71,8 +72,8 @@ class SendTxHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new SendTxHandler(cuentaRepository, clienteRepository, transaccionRepository, productoService, totp,
-                new IntentosFallidos(clienteRepository, RELOJ, 5, 15), registro, gateway,
+        handler = new SendTxHandler(cuentaRepository, transaccionRepository, productoService,
+                new ValidadorA2F(totp, new IntentosFallidos(clienteRepository, RELOJ, 5, 15), clienteRepository), registro, gateway,
                 new ObjectMapper(), RELOJ, "083", "America/Mexico_City");
 
         cliente = new Cliente();

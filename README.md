@@ -43,6 +43,8 @@ Reglas de diseño que sigue la API (según el instrumento de evaluación):
    | `GESTOPAGO_PASSWORD` | la de prueba de la documentación de PuntoRed | Contraseña de GestoPago/PuntoRed para obtener el token que usa `GET /productosList` |
    | `GESTOPAGO_ID_DISTRIBUIDOR` | `83` | Distribuidor de GestoPago |
    | `GESTOPAGO_CODIGO_DISPOSITIVO` | `GPS83-TPV-17` | Dispositivo de GestoPago |
+   | `SALDO_INICIAL_CUENTA` | `0.00` | Saldo con el que el sistema abre cada cuenta nueva (en Railway: `1000.00`, para pruebas) |
+   | `DEPOSITO_MONTO_MAXIMO` | `50000.00` | Monto máximo por cada depósito a la cuenta propia |
 
    Los valores por defecto bastan para correr en local. Para usar otros, en PowerShell: `$env:DB_PASSWORD = "..."` antes de `.\gradlew.bat bootRun`.
 3. **Las tablas no se crean a mano.** Al arrancar, Flyway ejecuta los scripts de `src/main/resources/db/migration`:
@@ -55,6 +57,7 @@ Reglas de diseño que sigue la API (según el instrumento de evaluación):
    | `V5__numero_cuenta_16_digitos.sql` | Número de cuenta de 16 dígitos (las cuentas existentes se completan con ceros a la izquierda) |
    | `V6__inicio_sesion_y_a2f.sql` | Contraseña cifrada, segundo factor TOTP e intentos fallidos / bloqueo |
    | `V7__transacciones_gestopago.sql` | Tabla `transacciones`: pagos y recargas enviados a GestoPago con su petición y respuesta |
+   | `V8__depositos.sql` | Tabla `depositos`: bitácora de abonos a la cuenta propia con el saldo resultante |
 
    (`V1` corresponde al módulo de productos/GestoPago).
 
@@ -138,6 +141,7 @@ La columna **Token** indica si el endpoint exige `Authorization: Bearer <tokenAc
 | Eliminar (baja lógica) | DELETE | `/clientes/eliminacion` | `ClienteEliminacionRequest` | Sí | 200 | 400, 401, 404, 409 |
 | Consultar cuenta y saldo | POST | `/cuentas/consulta` | `CuentaConsultaRequest` | Sí | 200 | 400, 401, 404 |
 | Búsqueda de cuentas | POST | `/cuentas/busqueda` | `CuentaBusquedaRequest` | Sí | 200 | 400, 401 |
+| Depositar a mi cuenta | POST | `/cuentas/deposito` | `DepositoRequest` | Sí | 200 | 400, 401, 403, 404, 409, 423 |
 | Pago o recarga (GestoPago) | POST | `/transaccion` | `TransaccionRequest` | Sí | 200, 202 | 400, 401, 403, 404, 409, 422, 423, 503 |
 
 Fuera de `/api/v1`: `GET /productosList` (catálogo de PuntoRed) es público, y los endpoints anteriores de personas (`/personas`, `/personasActualiza`, `/personasElimina`) exigen token.
@@ -161,6 +165,20 @@ Reglas de seguridad:
 - El token temporal no abre ningún endpoint protegido, y el token de acceso no sirve para el paso A2F.
 - Los clientes registrados antes de la migración `V6` no tienen contraseña y no pueden iniciar sesión hasta que se les asigne una.
 - Por ahora el único método es TOTP. Huella y reconocimiento facial se agregarían como nuevos valores de `MetodoA2F` usando WebAuthn (passkeys).
+
+### Saldo de la cuenta: saldo inicial y depósitos
+
+El cliente **no** decide con cuánto abre su cuenta: el alta es pública y, si pudiera mandar su saldo, cualquiera crearía cuentas con dinero inventado. El dinero entra de dos formas:
+
+1. **Saldo inicial:** lo define el sistema con `SALDO_INICIAL_CUENTA` (por defecto `0.00`). En el despliegue de Railway vale `1000.00` para que se puedan probar pagos sin pasos extra.
+2. **Depósito** (`POST /cuentas/deposito`): el titular abona a **su propia** cuenta con token de acceso y código 2FA.
+   ```json
+   { "numeroCuenta": "4152313748382907", "monto": 500.00, "codigoA2F": "123456" }
+   ```
+   - La cuenta debe ser del usuario de la sesión (403 si no) y estar activa.
+   - El monto debe ser mayor a cero y no rebasar `DEPOSITO_MONTO_MAXIMO` (50,000 por defecto).
+   - El código 2FA sigue las mismas reglas que en los pagos (`ValidadorA2F`): un código, una operación; protegido contra doble clic y contado para el bloqueo por intentos.
+   - Se abona con la cuenta bloqueada (`SELECT ... FOR UPDATE`) y se registra en la tabla `depositos` con el saldo resultante, así un depósito y un pago simultáneos nunca leen el mismo saldo.
 
 ### Pagos y recargas con GestoPago (`POST /transaccion`)
 
@@ -367,10 +385,12 @@ Todas las respuestas de la API tienen la forma `{ "codigo", "mensaje", "datos" }
 
 ## 8. Evidencia de pruebas realizadas
 
-### Pruebas automatizadas (`.\gradlew.bat test`): 139 pruebas, todas aprobadas
+### Pruebas automatizadas (`.\gradlew.bat test`): 151 pruebas, todas aprobadas
 
 | Suite | Pruebas | Qué cubre |
 |---|---|---|
+| `DepositoHandlerTest` | 8 | Depósito correcto con folio y saldo, cuenta inexistente, ajena o inactiva, monto mayor al máximo, 2FA incorrecto, doble clic, cuenta dada de baja al bloquearla |
+| `RegistroDepositosTest` | 2 | Abono con la cuenta bloqueada y saldo resultante en la bitácora; cuenta inactiva no abona |
 | `SendTxHandlerTest` | 22 | Cuenta inexistente o ajena, cliente o cuenta inactivos, saldo insuficiente (también entre pagos simultáneos), producto fuera del catálogo, reglas de tipoFront y teléfonos fijos, 2FA incorrecto, sin configurar, reutilizado o en uso por un doble clic, payload exacto, éxito, rechazos 02/06/otros con mensaje propio, código 82, sin respuesta y no enviada |
 | `GestoPagoTxIntegracionTest` | 5 | **Integración** con WireMock (Feign + cifrado + gateway reales): POST urlencoded con `random`/`signed`, `Authorization` y `X-API-Key`, payload cifrado en la red, 403 → token renovado, timeout de lectura, código 82, confirmTx con el mismo `signed` |
 | `GlobalExceptionHandlerTest` | 4 | JSON mal formado, `ResponseStatusException`, 405 y error inesperado sin exponer detalles internos |
@@ -424,26 +444,32 @@ Conceptos de POO que muestra el diagrama:
 ```
 com.proyecto.servicios
 ├── controller        ClienteController, CuentaController, AuthController, TransaccionController
-├── handler           Handler<I, O>, SendTxHandler (pago con GestoPago), ConfirmTxProceso (confirmTx),
+├── handler           Handler<I, O>, SendTxHandler (pago con GestoPago), DepositoHandler (depósito),
+│                     ConfirmTxProceso (confirmTx),
 │                     RechazoGestoPago (códigos de GestoPago → mensajes propios)
 ├── service           ClienteService, CuentaService, AuthService (interfaces)
-│   └── impl          ClienteServiceImpl, CuentaServiceImpl, AuthServiceImpl, RegistroTransacciones
+│   └── impl          ClienteServiceImpl, CuentaServiceImpl, AuthServiceImpl, RegistroTransacciones,
+│                     RegistroDepositos
 ├── seguridad         TokenJwt (JWT HS256 temporal y de acceso), Totp (RFC 6238), IntentosFallidos,
+│                     ValidadorA2F (código 2FA de pagos y depósitos),
 │                     CifradoGestoPago (AES-256-CBC)
 ├── client            Feign de GestoPago (auth, productos, sendTx/confirmTx) y GestoPagoTxGateway
-├── repository.sf     ClienteRepository, CuentaRepository, DomicilioRepository, TransaccionRepository
+├── repository.sf     ClienteRepository, CuentaRepository, DomicilioRepository, TransaccionRepository,
+│                     DepositoRepository
 ├── specification     ClienteSpecification, CuentaSpecification
-├── entity.sf         Cliente, Domicilio, Cuenta, Transaccion
+├── entity.sf         Cliente, Domicilio, Cuenta, Transaccion, Deposito
 ├── enums             Catalogos (Sexo, EstadoCivil, EstatusCuenta, MetodoA2F, PasoLogin)
 ├── dto
 │   ├── request       ClienteCreateRequest, ClienteUpdateRequest, ClienteBusquedaRequest,
 │   │                 ClienteConsultaRequest, ClienteEliminacionRequest, ClienteLlaveRequest,
 │   │                 PaginacionRequest, DomicilioRequest, DomicilioUpdateRequest,
 │   │                 CuentaConsultaRequest, CuentaBusquedaRequest, LoginRequest,
-│   │                 A2fTokenRequest, A2fConfiguracionRequest, A2fVerificacionRequest
+│   │                 A2fTokenRequest, A2fConfiguracionRequest, A2fVerificacionRequest,
+│   │                 TransaccionRequest, DepositoRequest
 │   └── response      GenericResponse, ApiResponse, PaginaResponse, ClienteResponse,
 │                     DomicilioResponse, CuentaResponse, LoginResponse,
-│                     A2fConfiguracionResponse, TokenResponse
+│                     A2fConfiguracionResponse, TokenResponse, TransaccionResponse,
+│                     DepositoResponse
 ├── exception         GlobalExceptionHandler (manejo centralizado de excepciones)
 ├── validation        @MayorDeEdad y su validador, expresiones regulares compartidas
 ├── mapper            ClienteMapper (DTO <-> entidad)

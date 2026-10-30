@@ -13,11 +13,9 @@ import com.proyecto.servicios.entity.sf.Transaccion;
 import com.proyecto.servicios.enums.Catalogos.EstatusCuenta;
 import com.proyecto.servicios.enums.Catalogos.EstatusTransaccion;
 import com.proyecto.servicios.model.producto.ProductoDto;
-import com.proyecto.servicios.repository.sf.ClienteRepository;
 import com.proyecto.servicios.repository.sf.CuentaRepository;
 import com.proyecto.servicios.repository.sf.TransaccionRepository;
-import com.proyecto.servicios.seguridad.IntentosFallidos;
-import com.proyecto.servicios.seguridad.Totp;
+import com.proyecto.servicios.seguridad.ValidadorA2F;
 import com.proyecto.servicios.service.ProductoService;
 import com.proyecto.servicios.service.impl.RegistroTransacciones;
 import lombok.extern.slf4j.Slf4j;
@@ -62,9 +60,9 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     static final String MSG_INACTIVO = "El cliente o la cuenta no están activos.";
     static final String MSG_SALDO = "Saldo insuficiente para realizar la operación.";
     static final String MSG_PRODUCTO = "El servicio y producto indicados no están en el catálogo de GestoPago.";
-    static final String MSG_A2F_SIN_CONFIGURAR = "Configure su segundo factor antes de realizar pagos.";
-    static final String MSG_A2F_INVALIDO = "El código 2FA no es válido o ya fue utilizado.";
-    static final String MSG_A2F_EN_USO = "Ya hay una operación en proceso con este código 2FA. Consulte su saldo antes de reintentar.";
+    static final String MSG_A2F_SIN_CONFIGURAR = ValidadorA2F.MSG_SIN_CONFIGURAR;
+    static final String MSG_A2F_INVALIDO = ValidadorA2F.MSG_INVALIDO;
+    static final String MSG_A2F_EN_USO = ValidadorA2F.MSG_EN_USO;
     static final String MSG_PAGO_EXITOSO = "Pago exitoso.";
     static final String MSG_POR_CONFIRMAR = "GestoPago no respondió a tiempo. El monto queda apartado mientras se confirma la operación.";
 
@@ -76,11 +74,9 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     private static final int TIPO_FRONT_SERVICIO = 2;
 
     private final CuentaRepository cuentaRepository;
-    private final ClienteRepository clienteRepository;
     private final TransaccionRepository transaccionRepository;
     private final ProductoService productoService;
-    private final Totp totp;
-    private final IntentosFallidos intentosFallidos;
+    private final ValidadorA2F validadorA2F;
     private final RegistroTransacciones registro;
     private final GestoPagoTxGateway gateway;
     private final ObjectMapper objectMapper;
@@ -89,11 +85,9 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     private final SecureRandom random = new SecureRandom();
 
     public SendTxHandler(CuentaRepository cuentaRepository,
-                         ClienteRepository clienteRepository,
                          TransaccionRepository transaccionRepository,
                          ProductoService productoService,
-                         Totp totp,
-                         IntentosFallidos intentosFallidos,
+                         ValidadorA2F validadorA2F,
                          RegistroTransacciones registro,
                          GestoPagoTxGateway gateway,
                          ObjectMapper objectMapper,
@@ -104,11 +98,9 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
             throw new IllegalStateException("gestopago.tx.unidad debe tener de 3 a 25 caracteres");
         }
         this.cuentaRepository = cuentaRepository;
-        this.clienteRepository = clienteRepository;
         this.transaccionRepository = transaccionRepository;
         this.productoService = productoService;
-        this.totp = totp;
-        this.intentosFallidos = intentosFallidos;
+        this.validadorA2F = validadorA2F;
         this.registro = registro;
         this.gateway = gateway;
         this.objectMapper = objectMapper;
@@ -159,7 +151,7 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         }
 
         // ── 3. Segundo factor ──
-        ApiResponse<TransaccionResponse> rechazoA2F = validarA2F(cliente, request.getCodigoA2F());
+        ApiResponse<TransaccionResponse> rechazoA2F = validadorA2F.validar(cliente, request.getCodigoA2F());
         if (rechazoA2F != null) {
             return rechazoA2F;
         }
@@ -244,29 +236,6 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         }
         return ApiResponse.error(HttpStatus.UNPROCESSABLE_ENTITY,
                 "El tipo de producto (tipoFront " + tipoFront + ") no se puede pagar con este servicio.");
-    }
-
-    /** Valida el codigo TOTP; un codigo incorrecto cuenta para el mismo bloqueo que el inicio de sesion. */
-    private ApiResponse<TransaccionResponse> validarA2F(Cliente cliente, String codigo) {
-        if (intentosFallidos.estaBloqueado(cliente)) {
-            return intentosFallidos.respuestaBloqueo(cliente);
-        }
-        if (!Boolean.TRUE.equals(cliente.getA2fActivo()) || cliente.getA2fSecreto() == null) {
-            return ApiResponse.error(HttpStatus.CONFLICT, MSG_A2F_SIN_CONFIGURAR);
-        }
-        long paso = totp.verificar(cliente.getA2fSecreto(), codigo, cliente.getA2fUltimoPaso());
-        if (paso < 0) {
-            return intentosFallidos.registrarFallo(cliente, MSG_A2F_INVALIDO);
-        }
-        // Marca el codigo como usado en la base de datos antes de apartar el saldo. Si dos peticiones
-        // iguales llegan juntas (doble clic, reintento automatico) solo una lo logra: evita el doble cobro.
-        if (clienteRepository.marcarPasoA2F(cliente.getId(), paso) == 0) {
-            log.warn("Codigo 2FA ya usado por otra peticion simultanea del cliente ID={}", cliente.getId());
-            return ApiResponse.error(HttpStatus.CONFLICT, MSG_A2F_EN_USO);
-        }
-        cliente.setA2fUltimoPaso(paso);
-        intentosFallidos.reiniciar(cliente);
-        return null;
     }
 
     /** JSON en el orden y con los nombres de la documentacion; solo se incluyen los campos que aplican. */

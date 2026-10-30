@@ -5,6 +5,7 @@ import com.proyecto.servicios.controller.ClienteController;
 import com.proyecto.servicios.controller.CuentaController;
 import com.proyecto.servicios.controller.TransaccionController;
 import com.proyecto.servicios.handler.SendTxComando;
+import com.proyecto.servicios.handler.DepositoHandler;
 import com.proyecto.servicios.handler.SendTxHandler;
 import com.proyecto.servicios.dto.response.TransaccionResponse;
 import com.proyecto.servicios.dto.response.ApiResponse;
@@ -66,6 +67,9 @@ class SeguridadConfigTest {
 
     @MockBean
     private SendTxHandler sendTxHandler;
+
+    @MockBean
+    private DepositoHandler depositoHandler;
 
     private void listarDevuelvePaginaVacia() {
         when(clienteService.listar()).thenReturn(ApiResponse.exito(HttpStatus.OK, "ok",
@@ -154,6 +158,33 @@ class SeguridadConfigTest {
         ArgumentCaptor<SendTxComando> comando = ArgumentCaptor.forClass(SendTxComando.class);
         verify(sendTxHandler).handle(comando.capture());
         assertThat(comando.getValue().clienteId()).isEqualTo(7);
+        assertThat(comando.getValue().request().getCodigoA2F()).isEqualTo("123456");
+    }
+
+    private static final String DEPOSITO = "{\"numeroCuenta\":\"4152313748382907\",\"monto\":500.00,\"2fa\":\"123456\"}";
+
+    @Test
+    @DisplayName("POST /api/v1/cuentas/deposito sin token: 401 y no llega al handler")
+    void deposito_sinToken_401() throws Exception {
+        mockMvc.perform(post("/api/v1/cuentas/deposito").contentType(MediaType.APPLICATION_JSON).content(DEPOSITO))
+                .andExpect(status().isUnauthorized());
+        org.mockito.Mockito.verifyNoInteractions(depositoHandler);
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/cuentas/deposito: el cliente sale del token, no del cuerpo")
+    void deposito_clienteDelToken() throws Exception {
+        when(depositoHandler.handle(any())).thenReturn(ApiResponse.exito(HttpStatus.OK, "Depósito realizado correctamente.",
+                new com.proyecto.servicios.dto.response.DepositoResponse()));
+
+        mockMvc.perform(post("/api/v1/cuentas/deposito").contentType(MediaType.APPLICATION_JSON).content(DEPOSITO)
+                        .header("Authorization", "Bearer " + tokenJwt.emitirAcceso(9, "juanperez95")))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<com.proyecto.servicios.handler.DepositoComando> comando =
+                ArgumentCaptor.forClass(com.proyecto.servicios.handler.DepositoComando.class);
+        verify(depositoHandler).handle(comando.capture());
+        assertThat(comando.getValue().clienteId()).isEqualTo(9);
         assertThat(comando.getValue().request().getCodigoA2F()).isEqualTo("123456");
     }
 }
