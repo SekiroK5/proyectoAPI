@@ -2,7 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "RAILPACK",
-    "buildCommand": "./gradlew bootJar -x test --no-daemon"
+    "buildCommand": "chmod +x gradlew && ./gradlew bootJar -x test --no-daemon"
   },
   "deploy": {
     "startCommand": "java -jar build/libs/productosList-1.0.jar",
