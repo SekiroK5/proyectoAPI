@@ -76,6 +76,11 @@ test {
     finalizedBy jacocoTestReport
 }
 
+// Solo se genera el jar ejecutable (bootJar); sin el "-plain.jar" no hay ambiguedad al desplegar
+jar {
+    enabled = false
+}
+
 springBoot {
     buildInfo {
     }

@@ -5,7 +5,6 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
-import io.swagger.v3.oas.models.servers.Server;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -29,7 +28,6 @@ public class OpenApi {
                                 + "los clientes se localizan con la llave compuesta nombre + correo electrónico. "
                                 + "Salvo el alta, el inicio de sesión y el catálogo de productos, los endpoints requieren "
                                 + "el token de acceso obtenido con contraseña + segundo factor (TOTP)."))
-                .addServersItem(new Server().url("http://localhost:8081"))
                 .components(new Components().addSecuritySchemes(ESQUEMA_JWT, new SecurityScheme()
                         .type(SecurityScheme.Type.HTTP)
                         .scheme("bearer")
