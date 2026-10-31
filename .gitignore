@@ -43,3 +43,6 @@ bin/
 .DS_Store
 ### Configuracion local con secretos ###
 config/gestopago.properties
+
+### Variables de entorno locales ###
+.env
