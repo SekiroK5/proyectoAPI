@@ -99,6 +99,12 @@ public class ClienteCreateRequest {
     @Pattern(regexp = "^[a-zA-Z0-9._-]{4,50}$", message = "El nombre de usuario debe tener entre 4 y 50 caracteres (letras, números, '.', '_' o '-').")
     private String nombreUsuario;
 
+    @Schema(description = "Se guarda cifrada con BCrypt y nunca se devuelve", example = "Segura#2026")
+    @NotEmpty(message = "La contraseña es obligatoria.")
+    @Pattern(regexp = CONTRASENA, message = "La contraseña debe tener entre 8 y 64 caracteres, sin espacios, "
+            + "con al menos una mayúscula, una minúscula, un número y un carácter especial.")
+    private String contrasena;
+
     @Schema(example = "4771234567")
     @NotEmpty(message = "El teléfono es obligatorio.")
     @Pattern(regexp = TELEFONO, message = "El teléfono debe contener exactamente 10 dígitos.")

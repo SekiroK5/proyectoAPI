@@ -1,0 +1,5 @@
+# gradlew se ejecuta en Linux (Railway, CI): siempre con fin de linea LF
+gradlew text eol=lf
+*.sh text eol=lf
+# Scripts de Windows con CRLF
+*.bat text eol=crlf

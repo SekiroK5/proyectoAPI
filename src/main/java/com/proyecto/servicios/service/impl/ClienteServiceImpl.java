@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,11 +45,13 @@ public class ClienteServiceImpl implements ClienteService {
 
     private final ClienteRepository clienteRepository;
     private final CuentaRepository cuentaRepository;
+    private final PasswordEncoder passwordEncoder;
     private final BigDecimal saldoInicial;
     private final SecureRandom random = new SecureRandom();
 
     public ClienteServiceImpl(ClienteRepository clienteRepository,
                               CuentaRepository cuentaRepository,
+                              PasswordEncoder passwordEncoder,
                               @Value("${onboarding.cuenta.saldo-inicial:0.00}") BigDecimal saldoInicial) {
         // Regla: el saldo inicial lo define el sistema y no puede ser negativo
         if (saldoInicial == null || saldoInicial.signum() < 0) {
@@ -56,6 +59,7 @@ public class ClienteServiceImpl implements ClienteService {
         }
         this.clienteRepository = clienteRepository;
         this.cuentaRepository = cuentaRepository;
+        this.passwordEncoder = passwordEncoder;
         this.saldoInicial = saldoInicial.setScale(2, RoundingMode.HALF_UP);
     }
 
@@ -71,6 +75,7 @@ public class ClienteServiceImpl implements ClienteService {
 
         Cliente cliente = ClienteMapper.aEntidad(request);
         cliente.setActivo(true);
+        cliente.setContrasenaHash(passwordEncoder.encode(request.getContrasena()));
         Cliente guardado = clienteRepository.save(cliente);
 
         Cuenta cuenta = new Cuenta();
@@ -196,12 +201,12 @@ public class ClienteServiceImpl implements ClienteService {
     }
 
     /**
-     * Genera un numero de cuenta de 10 digitos verificando que no exista.
+     * Genera un numero de cuenta de 16 digitos verificando que no exista.
      * La restriccion UNIQUE en base de datos cubre el caso de concurrencia.
      */
     private String generarNumeroCuentaUnico() {
         for (int intento = 0; intento < MAX_INTENTOS_NUMERO_CUENTA; intento++) {
-            String numeroCuenta = String.valueOf(1_000_000_000L + random.nextLong(9_000_000_000L));
+            String numeroCuenta = String.valueOf(1_000_000_000_000_000L + random.nextLong(9_000_000_000_000_000L));
             if (!cuentaRepository.existsByNumeroCuenta(numeroCuenta)) {
                 return numeroCuenta;
             }

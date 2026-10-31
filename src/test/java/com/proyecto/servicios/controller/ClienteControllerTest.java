@@ -8,6 +8,7 @@ import com.proyecto.servicios.dto.response.PaginaResponse;
 import com.proyecto.servicios.enums.Catalogos.EstatusCuenta;
 import com.proyecto.servicios.exception.GlobalExceptionHandler;
 import com.proyecto.servicios.service.ClienteService;
+import com.proyecto.servicios.handler.DepositoHandler;
 import com.proyecto.servicios.service.CuentaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,6 +54,9 @@ class ClienteControllerTest {
     @Mock
     private CuentaService cuentaService;
 
+    @Mock
+    private DepositoHandler depositoHandler;
+
     private MockMvc mockMvc;
 
     private static final String ALTA_VALIDA = """
@@ -60,7 +64,7 @@ class ClienteControllerTest {
               "nombre": "Juan", "apellidoPaterno": "Pérez", "apellidoMaterno": "López",
               "fechaNacimiento": "1995-05-20", "curp": "PELJ950520HDFRRN01", "rfc": "PELJ950520AB1",
               "sexo": "M", "nacionalidad": "Mexicana", "estadoCivil": "SOLTERO",
-              "correoElectronico": "juan.perez@correo.com", "nombreUsuario": "juanperez95",
+              "correoElectronico": "juan.perez@correo.com", "nombreUsuario": "juanperez95", "contrasena": "Segura#2026",
               "telefonoMovil": "4771234567", "ocupacion": "Desarrollador", "empresa": "Tech Corp",
               "ingresoMensual": 25000.00,
               "domicilio": { "calle": "Reforma", "numeroExterior": "123", "colonia": "Centro",
@@ -73,7 +77,7 @@ class ClienteControllerTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new ClienteController(clienteService), new CuentaController(cuentaService))
+                .standaloneSetup(new ClienteController(clienteService), new CuentaController(cuentaService, depositoHandler))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -83,7 +87,7 @@ class ClienteControllerTest {
         r.setId(1);
         r.setNombre("Juan");
         r.setCorreoElectronico("juan.perez@correo.com");
-        r.setNumeroCuenta("1234567890");
+        r.setNumeroCuenta("1234567890123456");
         r.setEstatusCuenta(EstatusCuenta.ACTIVA);
         r.setActivo(true);
         return r;
@@ -101,7 +105,7 @@ class ClienteControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.codigo").value(0))
                 .andExpect(jsonPath("$.mensaje").value("Cliente registrado correctamente."))
-                .andExpect(jsonPath("$.datos.numeroCuenta").value("1234567890"))
+                .andExpect(jsonPath("$.datos.numeroCuenta").value("1234567890123456"))
                 .andExpect(jsonPath("$.status").doesNotExist());
     }
 
@@ -282,10 +286,10 @@ class ClienteControllerTest {
     @DisplayName("POST /cuentas/consulta inexistente -> 404 con codigo 1")
     void cuenta_404() throws Exception {
         when(cuentaService.consultar(any()))
-                .thenReturn(ApiResponse.<CuentaResponse>error(HttpStatus.NOT_FOUND, "No existe una cuenta con el número 0000000000."));
+                .thenReturn(ApiResponse.<CuentaResponse>error(HttpStatus.NOT_FOUND, "No existe una cuenta con el número 0000000000000000."));
 
         mockMvc.perform(post("/api/v1/cuentas/consulta").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"numeroCuenta\":\"0000000000\"}"))
+                        .content("{\"numeroCuenta\":\"0000000000000000\"}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.codigo").value(1));
     }
@@ -296,6 +300,6 @@ class ClienteControllerTest {
         mockMvc.perform(post("/api/v1/cuentas/consulta").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"numeroCuenta\":\"12ab\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.mensaje").value(containsString("numeroCuenta=El número de cuenta debe contener exactamente 10 dígitos.")));
+                .andExpect(jsonPath("$.mensaje").value(containsString("numeroCuenta=El número de cuenta debe contener exactamente 16 dígitos.")));
     }
 }

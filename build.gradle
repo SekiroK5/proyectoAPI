@@ -32,6 +32,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    //Seguridad: inicio de sesion con JWT (HS256) y segundo factor TOTP
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    implementation 'commons-codec:commons-codec' // Base32 del secreto TOTP
     //Documentation y APIs
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0' // 2.6.x es la linea compatible con Spring Boot 3.3
     //Bases de datos (Hibernate y HikariCP llegan con spring-boot-starter-data-jpa)
@@ -53,6 +57,9 @@ dependencies {
     testAnnotationProcessor 'org.projectlombok:lombok:1.18.32'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    // Servidor HTTP simulado de GestoPago para las pruebas de integracion (version shaded: no choca con Jetty/Jackson de Boot)
+    testImplementation 'org.wiremock:wiremock-standalone:3.9.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -67,6 +74,11 @@ test {
     useJUnitPlatform()
     jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
     finalizedBy jacocoTestReport
+}
+
+// Solo se genera el jar ejecutable (bootJar); sin el "-plain.jar" no hay ambiguedad al desplegar
+jar {
+    enabled = false
 }
 
 springBoot {

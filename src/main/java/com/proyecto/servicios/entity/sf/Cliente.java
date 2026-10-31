@@ -1,6 +1,7 @@
 package com.proyecto.servicios.entity.sf;
 
 import com.proyecto.servicios.enums.Catalogos.EstadoCivil;
+import com.proyecto.servicios.enums.Catalogos.MetodoA2F;
 import com.proyecto.servicios.enums.Catalogos.Sexo;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -84,6 +85,30 @@ public class Cliente {
 
     @Column(name = "activo", nullable = false)
     private Boolean activo = true;
+
+    // ---------------- Inicio de sesion ----------------
+
+    @Column(name = "contrasena_hash", length = 60)
+    private String contrasenaHash;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "a2f_metodo", length = 20)
+    private MetodoA2F a2fMetodo;
+
+    @Column(name = "a2f_secreto", length = 32)
+    private String a2fSecreto;
+
+    @Column(name = "a2f_activo", nullable = false)
+    private Boolean a2fActivo = false;
+
+    @Column(name = "a2f_ultimo_paso")
+    private Long a2fUltimoPaso;
+
+    @Column(name = "intentos_fallidos", nullable = false)
+    private Integer intentosFallidos = 0;
+
+    @Column(name = "bloqueado_hasta")
+    private LocalDateTime bloqueadoHasta;
 
     @Column(name = "fecha_creacion", nullable = false, updatable = false)
     private LocalDateTime fechaCreacion;

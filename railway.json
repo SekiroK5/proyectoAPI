@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "chmod +x gradlew && ./gradlew bootJar -x test --no-daemon"
+  },
+  "deploy": {
+    "startCommand": "java -jar build/libs/productosList-1.0.jar",
+    "healthcheckPath": "/actuator/health",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  }
+}

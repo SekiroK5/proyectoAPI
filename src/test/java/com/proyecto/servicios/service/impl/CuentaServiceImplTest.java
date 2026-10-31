@@ -45,7 +45,7 @@ class CuentaServiceImplTest {
         cliente.setCorreoElectronico("ana@correo.com");
         cliente.setActivo(true);
         Cuenta cuenta = new Cuenta();
-        cuenta.setNumeroCuenta("1234567890");
+        cuenta.setNumeroCuenta("1234567890123456");
         cuenta.setSaldo(new BigDecimal("150.50"));
         cuenta.setEstatus(EstatusCuenta.ACTIVA);
         cuenta.setCliente(cliente);
@@ -61,9 +61,9 @@ class CuentaServiceImplTest {
     @Test
     @DisplayName("Consulta la cuenta con su saldo y titular")
     void consultar_existente() {
-        when(cuentaRepository.findByNumeroCuenta("1234567890")).thenReturn(Optional.of(cuenta()));
+        when(cuentaRepository.findByNumeroCuenta("1234567890123456")).thenReturn(Optional.of(cuenta()));
 
-        CuentaResponse res = cuentaService.consultar(consulta("1234567890")).getDatos();
+        CuentaResponse res = cuentaService.consultar(consulta("1234567890123456")).getDatos();
 
         assertThat(res.getSaldo()).isEqualByComparingTo("150.50");
         assertThat(res.getNombreCliente()).isEqualTo("Ana Ruiz Díaz");
@@ -73,13 +73,13 @@ class CuentaServiceImplTest {
     @Test
     @DisplayName("Cuenta inexistente -> codigo 1, 404")
     void consultar_inexistente() {
-        when(cuentaRepository.findByNumeroCuenta("0000000000")).thenReturn(Optional.empty());
+        when(cuentaRepository.findByNumeroCuenta("0000000000000000")).thenReturn(Optional.empty());
 
-        ApiResponse<CuentaResponse> res = cuentaService.consultar(consulta("0000000000"));
+        ApiResponse<CuentaResponse> res = cuentaService.consultar(consulta("0000000000000000"));
 
         assertThat(res.getCodigo()).isEqualTo(ApiResponse.ERROR);
         assertThat(res.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(res.getMensaje()).contains("0000000000");
+        assertThat(res.getMensaje()).contains("0000000000000000");
     }
 
     @Test

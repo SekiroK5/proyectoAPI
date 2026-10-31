@@ -48,7 +48,7 @@ public class ClienteBusquedaRequest extends PaginacionRequest {
     @Pattern(regexp = RFC, message = "El RFC no cumple con el formato oficial.")
     private String rfc;
 
-    @Pattern(regexp = NUMERO_CUENTA, message = "El número de cuenta debe contener exactamente 10 dígitos.")
+    @Pattern(regexp = NUMERO_CUENTA, message = "El número de cuenta debe contener exactamente 16 dígitos.")
     private String numeroCuenta;
 
     @Schema(description = "Fecha de registro desde (inclusive)", example = "2026-01-01")
