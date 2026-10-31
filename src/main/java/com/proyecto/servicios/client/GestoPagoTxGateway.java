@@ -1,5 +1,6 @@
 package com.proyecto.servicios.client;
 
+import com.proyecto.servicios.model.gestopago.AutorizacionXml;
 import com.proyecto.servicios.model.gestopago.SendTxResponseXml;
 import com.proyecto.servicios.seguridad.CifradoGestoPago;
 import com.proyecto.servicios.service.GestoPagoTokenService;
@@ -43,7 +44,8 @@ public class GestoPagoTxGateway {
         this.cifrado = cifrado;
         this.clock = clock;
         this.apiKey = apiKey == null || apiKey.isBlank() ? null : apiKey;
-        this.contextoXml = JAXBContext.newInstance(SendTxResponseXml.class);
+        // Dos formatos: <RESPONSE> (el documentado) y <AUTORIZACION> (algunos rechazos, p. ej. carrier sin respuesta)
+        this.contextoXml = JAXBContext.newInstance(SendTxResponseXml.class, AutorizacionXml.class);
     }
 
     /**
@@ -127,7 +129,15 @@ public class GestoPagoTxGateway {
             return Resultado.sinRespuesta(cuerpo, "Respuesta vacia de GestoPago");
         }
         try {
-            SendTxResponseXml xml = (SendTxResponseXml) contextoXml.createUnmarshaller().unmarshal(new StringReader(cuerpo));
+            Object leido = contextoXml.createUnmarshaller().unmarshal(new StringReader(cuerpo));
+            SendTxResponseXml xml = leido instanceof AutorizacionXml autorizacion
+                    ? autorizacion.comoRespuesta()
+                    : (SendTxResponseXml) leido;
+            if (xml.codigo() == null) {
+                // XML valido pero sin codigo: no se puede saber si se aplico
+                log.error("GestoPago {} respondio XML sin codigo", metodo);
+                return Resultado.sinRespuesta(cuerpo, "Respuesta de GestoPago sin codigo");
+            }
             log.info("GestoPago {} respondio codigo={} texto={}", metodo, xml.codigo(), xml.texto());
             return Resultado.respuesta(xml, cuerpo);
         } catch (JAXBException ex) {

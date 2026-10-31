@@ -452,4 +452,19 @@ class SendTxHandlerTest {
         assertThat(ejecutar(recarga()).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         verify(registro).rechazar(eq(99), any());
     }
+
+    @Test
+    @DisplayName("Código 03 (carrier sin respuesta): 503 inmediato con saldo devuelto, sin quedar por confirmar")
+    void rechazada_carrierNoDisponible() {
+        registroCierraCon(EstatusTransaccion.RECHAZADA);
+        when(gateway.enviar(anyString())).thenReturn(respuesta("03", "Por el momento el carrier no responde"));
+
+        ApiResponse<TransaccionResponse> res = ejecutar(recarga());
+
+        assertThat(res.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(res.getMensaje()).contains("no está respondiendo", "No se realizó ningún cargo", "GP-03")
+                .doesNotContain("carrier");
+        verify(registro).rechazar(eq(99), any());
+        verify(registro, never()).marcarPorConfirmar(any(), any());
+    }
 }

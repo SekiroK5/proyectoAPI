@@ -215,8 +215,11 @@ Flujo:
    |---|---|---|---|
    | Código `01` | `APLICADA` | 200 *Pago exitoso.* | Queda descontado |
    | Código `02` (saldo del distribuidor con PuntoRed) | `RECHAZADA` | 503 con mensaje propio | Se devuelve |
+   | Código `03` (el carrier no responde) | `RECHAZADA` | 503 con mensaje propio | Se devuelve |
    | Código `06` (duplicada en GestoPago) | `RECHAZADA` | 409 con mensaje propio | Se devuelve |
    | Otro código | `RECHAZADA` | 422 con mensaje propio | Se devuelve |
+
+   GestoPago usa dos formatos de respuesta: el documentado (`<RESPONSE><MENSAJE><CODIGO>`) y uno que aparece en algunos rechazos, como el código 03 (`<AUTORIZACION><CODIGO_MENSAJE>`). Ambos se leen igual.
 
    Como pide la documentación (*"the failure cases must be mapped to the error codes on your application side"*), `RechazoGestoPago` traduce cada código a un mensaje propio que incluye la referencia `GP-xx`. El texto original de GestoPago solo se guarda en la bitácora.
    | Código `82` o sin respuesta | `PENDIENTE_CONFIRMACION` | 202 | Sigue apartado |
@@ -385,7 +388,7 @@ Todas las respuestas de la API tienen la forma `{ "codigo", "mensaje", "datos" }
 
 ## 8. Evidencia de pruebas realizadas
 
-### Pruebas automatizadas (`.\gradlew.bat test`): 151 pruebas, todas aprobadas
+### Pruebas automatizadas (`.\gradlew.bat test`): 155 pruebas, todas aprobadas
 
 | Suite | Pruebas | Qué cubre |
 |---|---|---|

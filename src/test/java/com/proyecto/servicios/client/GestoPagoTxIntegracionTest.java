@@ -203,4 +203,22 @@ class GestoPagoTxIntegracionTest {
         String signedConfirmacion = formulario(GESTOPAGO.findAll(postRequestedFor(urlEqualTo(CONFIRM_TX))).get(0)).get("signed");
         assertThat(signedConfirmacion).isEqualTo(signedEnvio);
     }
+
+    @Test
+    @DisplayName("Formato <AUTORIZACION> de GestoPago por HTTP: se lee el código 03")
+    void sendTx_formatoAutorizacion() {
+        GESTOPAGO.stubFor(post(urlEqualTo(SEND_TX)).willReturn(aResponse().withStatus(200)
+                .withHeader("Content-Type", "text/xml;charset=UTF-8").withBody("""
+                <?xml version='1.0' encoding='UTF-8'?>
+                <AUTORIZACION>
+                    <NUM_AUTORIZACION>-1</NUM_AUTORIZACION>
+                    <CODIGO_MENSAJE>03</CODIGO_MENSAJE>
+                    <MENSAJE>Por el momento el carrier no responde, favor de intentar mas tarde.</MENSAJE>
+                </AUTORIZACION>""")));
+
+        Resultado res = gateway.enviar(PAYLOAD);
+
+        assertThat(res.codigo()).isEqualTo("03");
+        assertThat(res.xml().getNumAutorizacion()).isEqualTo("-1");
+    }
 }

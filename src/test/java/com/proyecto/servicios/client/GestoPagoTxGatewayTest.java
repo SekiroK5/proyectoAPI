@@ -167,4 +167,36 @@ class GestoPagoTxGatewayTest {
         assertThat(res.codigo()).isEqualTo("06");
         assertThat(res.xml().idTransaccion()).isEqualTo("291437188");
     }
+
+    @Test
+    @DisplayName("Lee el formato <AUTORIZACION> (código 03, carrier sin respuesta) como respuesta con código")
+    void enviar_formatoAutorizacion() {
+        when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("tokenGP"));
+        when(txClient.sendTx(any(), any(), anyMap())).thenReturn("""
+                <?xml version='1.0' encoding='UTF-8'?>
+                <AUTORIZACION>
+                    <NUM_AUTORIZACION>-1</NUM_AUTORIZACION>
+                    <CODIGO_MENSAJE>03</CODIGO_MENSAJE>
+                    <MENSAJE>Por el momento el carrier no responde, favor de intentar mas tarde.</MENSAJE>
+                </AUTORIZACION>""");
+
+        Resultado res = gateway.enviar(PAYLOAD);
+
+        assertThat(res.tieneRespuesta()).isTrue();
+        assertThat(res.codigo()).isEqualTo("03");
+        assertThat(res.xml().getNumAutorizacion()).isEqualTo("-1");
+        assertThat(res.xml().texto()).startsWith("Por el momento el carrier no responde");
+    }
+
+    @Test
+    @DisplayName("Un XML válido pero sin código se trata como resultado desconocido")
+    void enviar_xmlSinCodigo() {
+        when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("tokenGP"));
+        when(txClient.sendTx(any(), any(), anyMap())).thenReturn("<RESPONSE><NUM_AUTORIZACION>5</NUM_AUTORIZACION></RESPONSE>");
+
+        Resultado res = gateway.enviar(PAYLOAD);
+
+        assertThat(res.tieneRespuesta()).isFalse();
+        assertThat(res.enviada()).isTrue();
+    }
 }

@@ -15,6 +15,10 @@ public enum RechazoGestoPago {
     SALDO_DISTRIBUIDOR("02", HttpStatus.SERVICE_UNAVAILABLE,
             "El servicio de pagos no está disponible por el momento. Intente más tarde."),
 
+    /** "Por el momento el carrier no responde": la telefonica no contesto y GestoPago no aplico la operacion. */
+    CARRIER_NO_DISPONIBLE("03", HttpStatus.SERVICE_UNAVAILABLE,
+            "La compañía de la recarga no está respondiendo por el momento. Intente más tarde."),
+
     /** "Transaccion aplicada anteriormente": mismo servicio y monto dentro de la ventana de duplicados. */
     DUPLICADA("06", HttpStatus.CONFLICT,
             "Ya se realizó una operación igual recientemente (mismo servicio y monto). Verifique su historial antes de reintentar."),
