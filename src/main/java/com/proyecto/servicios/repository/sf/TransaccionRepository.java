@@ -3,6 +3,9 @@ package com.proyecto.servicios.repository.sf;
 import com.proyecto.servicios.entity.sf.Transaccion;
 import com.proyecto.servicios.enums.Catalogos.EstatusTransaccion;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -18,6 +21,17 @@ import java.util.Optional;
 public interface TransaccionRepository extends JpaRepository<Transaccion, Integer> {
 
     boolean existsByUpc(String upc);
+
+    /** Historial del cliente: solo sus transacciones (a traves de su cuenta). */
+    @EntityGraph(attributePaths = "cuenta")
+    Page<Transaccion> findByCuenta_Cliente_Id(Integer clienteId, Pageable pageable);
+
+    @EntityGraph(attributePaths = "cuenta")
+    Page<Transaccion> findByCuenta_Cliente_IdAndEstatus(Integer clienteId, EstatusTransaccion estatus, Pageable pageable);
+
+    /** Detalle: la transaccion solo se encuentra si es del cliente. */
+    @EntityGraph(attributePaths = "cuenta")
+    Optional<Transaccion> findByIdAndCuenta_Cliente_Id(Integer id, Integer clienteId);
 
     /** Evita que el handler y el proceso de confirmTx cierren la misma transaccion al mismo tiempo. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

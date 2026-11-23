@@ -3,6 +3,7 @@ package com.proyecto.servicios.service.impl;
 import com.proyecto.servicios.client.CircuitoGestoPago;
 import com.proyecto.servicios.client.LimiteLlamadasGestoPago;
 import com.proyecto.servicios.client.ProductoClient;
+import com.proyecto.servicios.client.RecursosGestoPago;
 import org.springframework.web.server.ResponseStatusException;
 import com.proyecto.servicios.entity.gestopago.GestoPagoToken;
 import com.proyecto.servicios.entity.sf.ProductoCatalogo;
@@ -25,10 +26,12 @@ import org.springframework.stereotype.Service;
 
 import java.io.StringReader;
 import java.math.BigDecimal;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Catalogo de GestoPago. La documentacion de PuntoRed indica que getProductList se usa para guardar el
@@ -52,6 +55,7 @@ public class ProductoServiceImpl implements ProductoService {
     private final CatalogoProductos catalogo;
     private final LimiteLlamadasGestoPago limite;
     private final CircuitoGestoPago circuito;
+    private final RecursosGestoPago recursos;
 
     @Value("${productos.service.id-distribuidor}")
     private Integer idDistribuidor;
@@ -68,18 +72,28 @@ public class ProductoServiceImpl implements ProductoService {
                                GestoPagoTokenService tokenService,
                                CatalogoProductos catalogo,
                                LimiteLlamadasGestoPago limite,
-                               CircuitoGestoPago circuito) {
+                               CircuitoGestoPago circuito,
+                               RecursosGestoPago recursos) {
         this.productoClient = productoClient;
         this.tokenRepository = tokenRepository;
         this.tokenService = tokenService;
         this.catalogo = catalogo;
         this.limite = limite;
         this.circuito = circuito;
+        this.recursos = recursos;
     }
 
     @Override
     public List<ProductoDto> obtenerProductos() {
-        return catalogo.listar().stream().map(ProductoServiceImpl::aDto).toList();
+        List<ProductoCatalogo> productos = catalogo.listar();
+        // Servicios que tienen un producto de verificacion (tipoFront 4) en el catalogo
+        Set<Integer> verificables = new HashSet<>();
+        for (ProductoCatalogo p : productos) {
+            if (Integer.valueOf(4).equals(p.getTipoFront())) {
+                verificables.add(p.getIdServicio());
+            }
+        }
+        return productos.stream().map(p -> aDto(p, verificables.contains(p.getIdServicio()))).toList();
     }
 
     /** Al arrancar solo se pide el catalogo si la base de datos aun no lo tiene. */
@@ -219,7 +233,7 @@ public class ProductoServiceImpl implements ProductoService {
         return p;
     }
 
-    private static ProductoDto aDto(ProductoCatalogo p) {
+    private ProductoDto aDto(ProductoCatalogo p, boolean verificable) {
         ProductoDto dto = new ProductoDto();
         dto.setIdServicio(p.getIdServicio());
         dto.setIdProducto(p.getIdProducto());
@@ -232,6 +246,16 @@ public class ProductoServiceImpl implements ProductoService {
         dto.setShowAyuda(p.getShowAyuda());
         dto.setTipoReferencia(p.getTipoReferencia());
         dto.setLegend(p.getLegend());
+        dto.setLogoUrl(recursos.logoUrl(p.getIdServicio()));
+        dto.setCategoria(recursos.categoria(p.getIdCatTipoServicio()));
+        String tipoOperacion = RecursosGestoPago.tipoOperacion(p.getTipoFront());
+        dto.setTipoOperacion(tipoOperacion);
+        boolean esServicio = "PAGO_SERVICIO".equals(tipoOperacion);
+        dto.setRequiereVerificacion(esServicio);
+        dto.setVerificableEnGestoPago(esServicio && verificable);
+        if (esServicio) {
+            dto.setImagenReferenciaUrl(recursos.imagenReferenciaUrl(p.getIdServicio()));
+        }
         return dto;
     }
 

@@ -3,6 +3,7 @@ package com.proyecto.servicios.service.impl;
 import com.proyecto.servicios.client.CircuitoGestoPago;
 import com.proyecto.servicios.client.LimiteLlamadasGestoPago;
 import com.proyecto.servicios.client.ProductoClient;
+import com.proyecto.servicios.client.RecursosGestoPago;
 import com.proyecto.servicios.entity.gestopago.GestoPagoToken;
 import com.proyecto.servicios.entity.sf.ProductoCatalogo;
 import com.proyecto.servicios.model.producto.ProductoDto;
@@ -81,7 +82,8 @@ class ProductoServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        productoService = new ProductoServiceImpl(productoClient, tokenRepository, tokenService, catalogo, limite, circuito);
+        productoService = new ProductoServiceImpl(productoClient, tokenRepository, tokenService, catalogo, limite, circuito,
+                new RecursosGestoPago("https://gestopago.portalventas.net"));
         ReflectionTestUtils.setField(productoService, "idDistribuidor", 1);
         ReflectionTestUtils.setField(productoService, "codigoDispositivo", "DISPOSITIVO_001");
         ReflectionTestUtils.setField(productoService, "maxLlamadasDiarias", 2);
@@ -108,6 +110,7 @@ class ProductoServiceImplTest {
         assertThat(resultado).hasSize(1);
         assertThat(resultado.get(0).getServicio()).isEqualTo("Amazon");
         assertThat(resultado.get(0).getPrecio()).isEqualTo(100.0);
+        assertThat(resultado.get(0).getLogoUrl()).isEqualTo("https://gestopago.portalventas.net/sistema/images/gestopago/servicios/71.png");
         verify(productoClient, never()).getProductList(anyString());
     }
 

@@ -63,6 +63,10 @@ public class SendTxResponseXml {
         @XmlElement(name = "legend")
         private String legend;
 
+        /** verifyReference: adeudo de la referencia (positivo = pendiente, 0 = al corriente, negativo = a favor). */
+        @XmlElement(name = "SALDO")
+        private String saldo;
+
         /** confirmTx devuelve el ID_TX dentro de MENSAJE. */
         @XmlElement(name = "ID_TX")
         private String idTx;

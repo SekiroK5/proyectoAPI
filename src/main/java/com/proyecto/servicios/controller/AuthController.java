@@ -8,6 +8,7 @@ import com.proyecto.servicios.dto.response.ApiResponse;
 import com.proyecto.servicios.dto.response.GenericResponse;
 import com.proyecto.servicios.dto.response.LoginResponse;
 import com.proyecto.servicios.dto.response.TokenResponse;
+import com.proyecto.servicios.seguridad.SesionesRevocadas;
 import com.proyecto.servicios.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -17,6 +18,8 @@ import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -39,9 +42,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final SesionesRevocadas sesionesRevocadas;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, SesionesRevocadas sesionesRevocadas) {
         this.authService = authService;
+        this.sesionesRevocadas = sesionesRevocadas;
+    }
+
+    @Operation(summary = "Cerrar sesión",
+            description = "Invalida el token de acceso actual en el servidor (aunque no haya vencido). Respuestas: 200, 401.")
+    @PostMapping("/logout")
+    public ResponseEntity<GenericResponse> cerrarSesion(@AuthenticationPrincipal Jwt sesion) {
+        log.info("POST /api/v1/auth/logout");
+        sesionesRevocadas.revocar(sesion.getId(), sesion.getExpiresAt());
+        GenericResponse respuesta = new GenericResponse();
+        respuesta.setCodigo(ApiResponse.EXITO);
+        respuesta.setMensaje("Sesión cerrada correctamente.");
+        return ResponseEntity.ok(respuesta);
     }
 
     @Operation(summary = "Iniciar sesión (paso 1)",

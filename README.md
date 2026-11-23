@@ -58,6 +58,8 @@ Reglas de diseño que sigue la API (según el instrumento de evaluación):
    | `V6__inicio_sesion_y_a2f.sql` | Contraseña cifrada, segundo factor TOTP e intentos fallidos / bloqueo |
    | `V7__transacciones_gestopago.sql` | Tabla `transacciones`: pagos y recargas enviados a GestoPago con su petición y respuesta |
    | `V8__depositos.sql` | Tabla `depositos`: bitácora de abonos a la cuenta propia con el saldo resultante |
+   | `V9__limites_gestopago.sql` | Cupo diario de llamadas, catálogo en base de datos y reintentos de `confirmTx` |
+   | `V10__referencias_y_sesiones.sql` | Verificaciones de referencia y tokens revocados al cerrar sesión |
 
    (`V1` corresponde al módulo de productos/GestoPago).
 
@@ -143,6 +145,10 @@ La columna **Token** indica si el endpoint exige `Authorization: Bearer <tokenAc
 | Búsqueda de cuentas | POST | `/cuentas/busqueda` | `CuentaBusquedaRequest` | Sí | 200 | 400, 401 |
 | Depositar a mi cuenta | POST | `/cuentas/deposito` | `DepositoRequest` | Sí | 200 | 400, 401, 403, 404, 409, 423 |
 | Pago o recarga (GestoPago) | POST | `/transaccion` | `TransaccionRequest` | Sí | 200, 202 | 400, 401, 403, 404, 409, 422, 423, 503 |
+| Verificar referencia | POST | `/referencias/verificacion` | `VerificacionReferenciaRequest` | Sí | 200 | 400, 401, 404, 422, 429, 503 |
+| Historial de pagos | POST | `/transaccion/historial` | `HistorialTransaccionesRequest` | Sí | 200 | 400, 401 |
+| Detalle de un pago | POST | `/transaccion/detalle` | `DetalleTransaccionRequest` | Sí | 200 | 400, 401, 404 |
+| Cerrar sesión | POST | `/auth/logout` | — | Sí | 200 | 401 |
 
 Fuera de `/api/v1`: `GET /productosList` (catálogo de PuntoRed) es público, y los endpoints anteriores de personas (`/personas`, `/personasActualiza`, `/personasElimina`) exigen token.
 
@@ -179,6 +185,15 @@ El cliente **no** decide con cuánto abre su cuenta: el alta es pública y, si p
    - El monto debe ser mayor a cero y no rebasar `DEPOSITO_MONTO_MAXIMO` (50,000 por defecto).
    - El código 2FA sigue las mismas reglas que en los pagos (`ValidadorA2F`): un código, una operación; protegido contra doble clic y contado para el bloqueo por intentos.
    - Se abona con la cuenta bloqueada (`SELECT ... FOR UPDATE`) y se registra en la tabla `depositos` con el saldo resultante, así un depósito y un pago simultáneos nunca leen el mismo saldo.
+
+### Catálogo, referencias, historial y cierre de sesión (plataforma web y móvil)
+
+- **Catálogo** (`GET /productosList`, público): cada producto trae `logoUrl` (logotipo público de GestoPago por `idServicio`), `categoria` (nombre según `idCatTipoServicio`), `tipoOperacion` (`RECARGA` o `PAGO_SERVICIO`), `requiereVerificacion`, `verificableEnGestoPago` e `imagenReferenciaUrl` (ayuda para encontrar la referencia en el recibo).
+- **Verificar referencia** (`POST /referencias/verificacion`): valida el formato (10 dígitos si la referencia es un teléfono) y, si GestoPago ofrece `verifyReference` para el servicio (producto `tipoFront 4`), lo consulta. Devuelve un **folio** vigente 15 minutos y de un solo uso, con el adeudo pendiente cuando GestoPago lo informa. Si el servicio no tiene `verifyReference`, el resultado es `FORMATO_VALIDO` y así se indica. Máximo 20 verificaciones por hora por cliente.
+- **Pago de servicio**: exige `folioVerificacion` del mismo cliente, servicio y referencia, no inválido, vigente y sin usar; se marca como usado de forma atómica. Sin referencia verificada no se puede pagar.
+- **Historial** (`POST /transaccion/historial`) y **detalle** (`POST /transaccion/detalle`): solo las operaciones del usuario de la sesión, con servicio, logotipo, fecha, referencia, importe, folio y estatus.
+- **Cerrar sesión** (`POST /auth/logout`): el token de acceso queda revocado en el servidor (tabla `tokens_revocados`) y deja de servir aunque no haya vencido.
+- **CORS**: las apps web permitidas se configuran con `CORS_ORIGENES` (por defecto `http://localhost:5173`).
 
 ### Límites de llamadas a GestoPago
 

@@ -3,8 +3,10 @@ package com.proyecto.servicios.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.proyecto.servicios.dto.response.ApiResponse;
 import com.proyecto.servicios.dto.response.GenericResponse;
+import com.proyecto.servicios.seguridad.SesionesRevocadas;
 import com.proyecto.servicios.seguridad.TokenJwt;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -15,11 +17,18 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.BadJwtException;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.io.IOException;
 import java.time.Clock;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Seguridad de la API: sin sesion en servidor (stateless) y con JWT de ACCESO en
@@ -31,6 +40,9 @@ import java.time.Clock;
 @Configuration
 public class SeguridadConfig {
 
+    @Value("${seguridad.cors.origenes:http://localhost:5173}")
+    private String origenesPermitidos;
+
     static final String MSG_SIN_SESION = "Se requiere iniciar sesión. Envíe el token de acceso en el encabezado Authorization: Bearer <token>.";
     static final String MSG_SIN_PERMISO = "No tiene permiso para realizar esta operación.";
 
@@ -39,9 +51,12 @@ public class SeguridadConfig {
         http
                 // API sin cookies de sesion: CSRF no aplica
                 .csrf(AbstractHttpConfigurer::disable)
+                // La app web corre en otro origen (p. ej. http://localhost:5173): solo los origenes configurados
+                .cors(c -> c.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/v1/clientes").permitAll()
+                        .requestMatchers("/api/v1/auth/logout").authenticated()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/productosList").permitAll()
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
@@ -59,8 +74,30 @@ public class SeguridadConfig {
 
     /** Solo acepta tokens de ACCESO firmados por esta API, vigentes y con el emisor configurado. */
     @Bean
-    public JwtDecoder jwtDecoder(TokenJwt tokenJwt) {
-        return tokenJwt.decoderAcceso();
+    public JwtDecoder jwtDecoder(TokenJwt tokenJwt, SesionesRevocadas sesionesRevocadas) {
+        JwtDecoder base = tokenJwt.decoderAcceso();
+        return token -> {
+            Jwt jwt = base.decode(token);
+            // Un token cerrado con /auth/logout ya no sirve aunque no haya vencido
+            if (sesionesRevocadas.estaRevocado(jwt.getId())) {
+                throw new BadJwtException("La sesión fue cerrada");
+            }
+            return jwt;
+        };
+    }
+
+    /** Origenes permitidos para las apps web, separados por coma (variable CORS_ORIGENES). */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(Arrays.stream(origenesPermitidos.split(","))
+                .map(String::trim).filter(o -> !o.isEmpty()).toList());
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        config.setMaxAge(3600L);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 
     @Bean

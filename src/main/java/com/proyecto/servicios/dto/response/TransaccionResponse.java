@@ -18,6 +18,11 @@ public class TransaccionResponse {
     private String numeroCuenta;
     private Integer idServicio;
     private Integer idProducto;
+    /** Nombre del servicio y producto segun el catalogo (pueden faltar si el producto ya no esta en el catalogo). */
+    private String servicio;
+    private String producto;
+    private String categoria;
+    private String logoUrl;
     private String telefono;
     private String referencia;
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "#0.00")

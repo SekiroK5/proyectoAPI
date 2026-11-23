@@ -1,11 +1,15 @@
 package com.proyecto.servicios.controller;
 
+import com.proyecto.servicios.dto.request.DetalleTransaccionRequest;
+import com.proyecto.servicios.dto.request.HistorialTransaccionesRequest;
 import com.proyecto.servicios.dto.request.TransaccionRequest;
 import com.proyecto.servicios.dto.response.ApiResponse;
 import com.proyecto.servicios.dto.response.GenericResponse;
+import com.proyecto.servicios.dto.response.PaginaResponse;
 import com.proyecto.servicios.dto.response.TransaccionResponse;
 import com.proyecto.servicios.handler.SendTxComando;
 import com.proyecto.servicios.handler.SendTxHandler;
+import com.proyecto.servicios.service.TransaccionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -34,9 +38,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class TransaccionController {
 
     private final SendTxHandler sendTxHandler;
+    private final TransaccionService transaccionService;
 
-    public TransaccionController(SendTxHandler sendTxHandler) {
+    public TransaccionController(SendTxHandler sendTxHandler, TransaccionService transaccionService) {
         this.sendTxHandler = sendTxHandler;
+        this.transaccionService = transaccionService;
     }
 
     @Operation(summary = "Realizar pago o recarga",
@@ -50,6 +56,28 @@ public class TransaccionController {
         // El cliente sale del token de acceso (subject), nunca del cuerpo de la peticion
         SendTxComando comando = new SendTxComando(Integer.valueOf(sesion.getSubject()), request);
         ApiResponse<TransaccionResponse> respuesta = sendTxHandler.handle(comando);
+        return ResponseEntity.status(respuesta.getStatus()).body(respuesta);
+    }
+
+    @Operation(summary = "Historial de pagos",
+            description = "Pagos del usuario de la sesión, del más reciente al más antiguo, con servicio, logotipo, fecha, "
+                    + "referencia, importe, folio y estatus. Filtro opcional por estatus. Respuestas: 200, 400, 401.")
+    @PostMapping(value = "/historial", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<PaginaResponse<TransaccionResponse>>> historial(@Valid @RequestBody HistorialTransaccionesRequest request,
+                                                                                      @AuthenticationPrincipal Jwt sesion) {
+        log.info("POST /api/v1/transaccion/historial");
+        ApiResponse<PaginaResponse<TransaccionResponse>> respuesta =
+                transaccionService.historial(Integer.valueOf(sesion.getSubject()), request);
+        return ResponseEntity.status(respuesta.getStatus()).body(respuesta);
+    }
+
+    @Operation(summary = "Detalle de un pago",
+            description = "Detalle completo de una transacción propia (incluye PIN o folio de tarjetas de regalo). Respuestas: 200, 400, 401, 404.")
+    @PostMapping(value = "/detalle", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<TransaccionResponse>> detalle(@Valid @RequestBody DetalleTransaccionRequest request,
+                                                                    @AuthenticationPrincipal Jwt sesion) {
+        log.info("POST /api/v1/transaccion/detalle");
+        ApiResponse<TransaccionResponse> respuesta = transaccionService.detalle(Integer.valueOf(sesion.getSubject()), request);
         return ResponseEntity.status(respuesta.getStatus()).body(respuesta);
     }
 }

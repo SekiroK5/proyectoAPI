@@ -43,6 +43,16 @@ public final class Catalogos {
         REVISION_MANUAL
     }
 
+    /** Resultado de verificar una referencia antes de pagar un servicio. */
+    public enum ResultadoVerificacion {
+        /** GestoPago (verifyReference) confirmo que la referencia es valida. */
+        VALIDA,
+        /** GestoPago o la validacion de formato la rechazaron. */
+        INVALIDA,
+        /** El servicio no ofrece verifyReference en GestoPago: solo se valido el formato. */
+        FORMATO_VALIDO
+    }
+
     // ======================== Inicio de sesion ========================
 
     /** Segundo factor de autenticacion. Huella y reconocimiento facial (WebAuthn) se agregaran aqui. */

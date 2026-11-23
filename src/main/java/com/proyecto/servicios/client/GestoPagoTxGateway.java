@@ -86,6 +86,12 @@ public class GestoPagoTxGateway {
                 formulario -> txClient.sendTx(tokenRenovado(), apiKey, formulario));
     }
 
+    /** verifyReference: misma forma (random + signed cifrado) y mismas protecciones que sendTx. */
+    public Resultado verificarReferencia(String payloadJson) {
+        return ejecutar("verifyReference", payloadJson, formulario -> txClient.verifyReference(token(), apiKey, formulario),
+                formulario -> txClient.verifyReference(tokenRenovado(), apiKey, formulario));
+    }
+
     public Resultado confirmar(String payloadJson) {
         return ejecutar("confirmTx", payloadJson, formulario -> txClient.confirmTx(token(), apiKey, formulario),
                 formulario -> txClient.confirmTx(tokenRenovado(), apiKey, formulario));
