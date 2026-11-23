@@ -133,4 +133,32 @@ class RegistroTransaccionesTest {
         assertThat(res.getTextoRespuesta()).isEqualTo("Read timed out");
         assertThat(cuenta.getSaldo()).isEqualByComparingTo("100.00");
     }
+
+    @Test
+    @DisplayName("confirmTx sin resultado: cuenta el intento y programa el siguiente sin tocar el saldo")
+    void programarSiguienteConfirmacion() {
+        tx.setEstatus(EstatusTransaccion.PENDIENTE_CONFIRMACION);
+        java.time.LocalDateTime proxima = java.time.LocalDateTime.of(2026, 11, 23, 12, 5);
+
+        Transaccion res = registro.programarSiguienteConfirmacion(99, new Resultado(null, null, "timeout", true), proxima, 8);
+
+        assertThat(res.getIntentosConfirmacion()).isEqualTo(1);
+        assertThat(res.getProximaConfirmacion()).isEqualTo(proxima);
+        assertThat(res.getEstatus()).isEqualTo(EstatusTransaccion.PENDIENTE_CONFIRMACION);
+        assertThat(cuenta.getSaldo()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    @DisplayName("Al llegar al máximo de intentos pasa a REVISION_MANUAL con el saldo apartado")
+    void programarSiguienteConfirmacion_maximo() {
+        tx.setEstatus(EstatusTransaccion.PENDIENTE_CONFIRMACION);
+        tx.setIntentosConfirmacion(7);
+
+        Transaccion res = registro.programarSiguienteConfirmacion(99, new Resultado(null, null, "timeout", true),
+                java.time.LocalDateTime.now(), 8);
+
+        assertThat(res.getEstatus()).isEqualTo(EstatusTransaccion.REVISION_MANUAL);
+        assertThat(res.getProximaConfirmacion()).isNull();
+        assertThat(cuenta.getSaldo()).isEqualByComparingTo("100.00");
+    }
 }

@@ -24,7 +24,14 @@ public interface TransaccionRepository extends JpaRepository<Transaccion, Intege
     @Query("select t from Transaccion t join fetch t.cuenta where t.id = :id")
     Optional<Transaccion> bloquearPorId(@Param("id") Integer id);
 
-    /** Transacciones sin resultado definitivo creadas dentro de la ventana permitida para confirmTx. */
-    List<Transaccion> findByEstatusInAndFechaCreacionBetweenOrderByFechaCreacion(
-            Collection<EstatusTransaccion> estatus, LocalDateTime desde, LocalDateTime hasta);
+    /**
+     * Transacciones sin resultado definitivo, creadas dentro de la ventana permitida para confirmTx
+     * y cuyo siguiente reintento ya toca.
+     */
+    @Query("select t from Transaccion t where t.estatus in :estatus and t.fechaCreacion between :desde and :hasta "
+            + "and (t.proximaConfirmacion is null or t.proximaConfirmacion <= :ahora) order by t.fechaCreacion")
+    List<Transaccion> buscarPorConfirmar(@Param("estatus") Collection<EstatusTransaccion> estatus,
+                                         @Param("desde") LocalDateTime desde,
+                                         @Param("hasta") LocalDateTime hasta,
+                                         @Param("ahora") LocalDateTime ahora);
 }

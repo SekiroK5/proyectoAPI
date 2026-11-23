@@ -180,6 +180,18 @@ El cliente **no** decide con cuánto abre su cuenta: el alta es pública y, si p
    - El código 2FA sigue las mismas reglas que en los pagos (`ValidadorA2F`): un código, una operación; protegido contra doble clic y contado para el bloqueo por intentos.
    - Se abona con la cuenta bloqueada (`SELECT ... FOR UPDATE`) y se registra en la tabla `depositos` con el saldo resultante, así un depósito y un pago simultáneos nunca leen el mismo saldo.
 
+### Límites de llamadas a GestoPago
+
+PuntoRed bloquea la IP de quien rebasa sus límites (por ejemplo, `getProductList` solo 3 veces al día). La API los respeta así:
+
+| Llamada | Límite |
+|---|---|
+| `getProductList` | Máximo **2 al día**, contadas en la tabla `llamadas_gestopago` (sobreviven reinicios y redespliegues). Solo la tarea de las 6 am y el arranque con catálogo vacío la usan. |
+| Catálogo | Se guarda en `productos_catalogo`. `/productosList` y los pagos lo leen de la base de datos y **nunca** llaman a GestoPago. |
+| `/authenticate` | Un token al día; como máximo **un intento cada 15 min**, aunque fallen muchas peticiones seguidas. |
+| `confirmTx` | Reintentos a 1, 5, 15 y 60 min; máximo **8 intentos** por transacción y después `REVISION_MANUAL` con el saldo apartado. |
+| Pausa general | Tras **5 fallas técnicas seguidas** (timeout, error HTTP, respuesta ilegible) no se llama a GestoPago durante **10 min**. Un rechazo de negocio no cuenta como falla. |
+
 ### Pagos y recargas con GestoPago (`POST /transaccion`)
 
 Basado en la documentación de PuntoRed (*Key Points*, *Encryption Snipplets*, `sendTx` y `confirmTx`). Lo ejecuta `SendTxHandler` (paquete `handler`), que el controlador manda llamar con el cliente de la sesión:

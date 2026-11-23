@@ -30,6 +30,7 @@ public class GestoPagoTxGateway {
     private final GestoPagoTxClient txClient;
     private final GestoPagoTokenService tokenService;
     private final CifradoGestoPago cifrado;
+    private final CircuitoGestoPago circuito;
     private final Clock clock;
     private final String apiKey;
     private final JAXBContext contextoXml;
@@ -37,11 +38,13 @@ public class GestoPagoTxGateway {
     public GestoPagoTxGateway(GestoPagoTxClient txClient,
                               GestoPagoTokenService tokenService,
                               CifradoGestoPago cifrado,
+                              CircuitoGestoPago circuito,
                               Clock clock,
                               @Value("${gestopago.api-key:}") String apiKey) throws JAXBException {
         this.txClient = txClient;
         this.tokenService = tokenService;
         this.cifrado = cifrado;
+        this.circuito = circuito;
         this.clock = clock;
         this.apiKey = apiKey == null || apiKey.isBlank() ? null : apiKey;
         // Dos formatos: <RESPONSE> (el documentado) y <AUTORIZACION> (algunos rechazos, p. ej. carrier sin respuesta)
@@ -91,6 +94,11 @@ public class GestoPagoTxGateway {
     private Resultado ejecutar(String metodo, String payloadJson,
                                Function<Map<String, String>, String> llamada,
                                Function<Map<String, String>, String> reintentoConTokenNuevo) {
+        if (!circuito.permite()) {
+            // GestoPago fallo varias veces seguidas: no se insiste mientras dure la pausa
+            log.warn("GestoPago {} no se envio: llamadas en pausa por fallas consecutivas", metodo);
+            return Resultado.noEnviada("GestoPago en pausa por fallas consecutivas");
+        }
         Map<String, String> formulario = new LinkedHashMap<>();
         formulario.put("random", String.valueOf(clock.millis()));
         try {
@@ -109,17 +117,26 @@ public class GestoPagoTxGateway {
                 log.warn("GestoPago {} rechazo el token ({}). Se renueva y se reintenta una vez", metodo, ex.status());
                 cuerpo = reintentoConTokenNuevo.apply(formulario);
             }
-            return interpretar(metodo, cuerpo);
+            Resultado resultado = interpretar(metodo, cuerpo);
+            // Una respuesta legible (aunque sea un rechazo de negocio) significa que GestoPago funciona
+            if (resultado.tieneRespuesta()) {
+                circuito.registrarExito();
+            } else {
+                circuito.registrarFalla(metodo);
+            }
+            return resultado;
         } catch (TokenNoDisponibleException ex) {
             // No se llego a enviar nada a GestoPago
             log.error("GestoPago {} no se envio: {}", metodo, ex.getMessage());
             return Resultado.noEnviada(ex.getMessage());
         } catch (FeignException ex) {
             log.error("GestoPago {} respondio HTTP {}", metodo, ex.status());
+            circuito.registrarFalla(metodo);
             return Resultado.sinRespuesta(ex.contentUTF8(), "HTTP " + ex.status() + " de GestoPago");
         } catch (RuntimeException ex) {
             // Timeout o desconexion: no se sabe si se aplico
             log.error("Sin respuesta de GestoPago {}: {}", metodo, ex.getMessage());
+            circuito.registrarFalla(metodo);
             return Resultado.sinRespuesta(null, "Sin respuesta de GestoPago: " + ex.getClass().getSimpleName());
         }
     }
@@ -151,7 +168,10 @@ public class GestoPagoTxGateway {
     }
 
     private String tokenRenovado() {
-        tokenService.renovarToken();
+        // Si no se pudo renovar (limite de renovaciones o pausa), no se reintenta con el token rechazado
+        if (!tokenService.renovarToken()) {
+            throw new TokenNoDisponibleException("No fue posible renovar el token de GestoPago en este momento");
+        }
         return bearer(tokenService.obtenerTokenVigente());
     }
 

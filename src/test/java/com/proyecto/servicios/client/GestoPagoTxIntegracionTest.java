@@ -77,7 +77,7 @@ class GestoPagoTxIntegracionTest {
     @EnableFeignClients(clients = GestoPagoTxClient.class)
     @ImportAutoConfiguration({FeignAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class,
             JacksonAutoConfiguration.class})
-    @Import({GestoPagoTxGateway.class, CifradoGestoPago.class})
+    @Import({GestoPagoTxGateway.class, CifradoGestoPago.class, CircuitoGestoPago.class})
     static class Contexto {
         @Bean
         Clock clock() {
@@ -149,6 +149,7 @@ class GestoPagoTxIntegracionTest {
     @Test
     @DisplayName("Token vencido (403 de GestoPago): renueva el token y reintenta con el nuevo")
     void sendTx_tokenVencido() {
+        when(tokenService.renovarToken()).thenReturn(true);
         when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("token-viejo"), Optional.of("token-nuevo"));
         GESTOPAGO.stubFor(post(urlEqualTo(SEND_TX)).inScenario("token").whenScenarioStateIs(STARTED)
                 .willReturn(aResponse().withStatus(403).withHeader("Content-Type", "application/json")

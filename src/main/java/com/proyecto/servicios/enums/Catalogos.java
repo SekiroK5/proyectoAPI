@@ -38,7 +38,9 @@ public final class Catalogos {
         /** GestoPago rechazo la operacion (o confirmTx 70): el saldo se devolvio. */
         RECHAZADA,
         /** No hubo respuesta (timeout o codigo 82): el saldo sigue apartado hasta confirmarla con confirmTx. */
-        PENDIENTE_CONFIRMACION
+        PENDIENTE_CONFIRMACION,
+        /** confirmTx no la resolvio tras el maximo de intentos: el saldo sigue apartado y la revisa una persona. */
+        REVISION_MANUAL
     }
 
     // ======================== Inicio de sesion ========================

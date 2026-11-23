@@ -1,8 +1,11 @@
 package com.proyecto.servicios.service.impl;
 
+import com.proyecto.servicios.client.CircuitoGestoPago;
+import com.proyecto.servicios.client.LimiteLlamadasGestoPago;
 import com.proyecto.servicios.client.ProductoClient;
 import org.springframework.web.server.ResponseStatusException;
 import com.proyecto.servicios.entity.gestopago.GestoPagoToken;
+import com.proyecto.servicios.entity.sf.ProductoCatalogo;
 import com.proyecto.servicios.model.producto.ProductoDto;
 import com.proyecto.servicios.model.producto.ProductoListResponse;
 import com.proyecto.servicios.model.producto.ProductoXml;
@@ -14,23 +17,41 @@ import jakarta.xml.bind.JAXBContext;
 import jakarta.xml.bind.JAXBException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.StringReader;
-import java.util.ArrayList;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
 
+/**
+ * Catalogo de GestoPago. La documentacion de PuntoRed indica que getProductList se usa para guardar el
+ * catalogo en la base de datos del integrador, como maximo 3 veces al dia (si no, bloquean la IP), y que
+ * nunca debe servir directamente al frontend. Por eso:
+ * <ul>
+ *   <li>{@link #obtenerProductos()} lee solo de la base de datos; ni /productosList ni los pagos llaman a GestoPago.</li>
+ *   <li>Solo la tarea diaria (y el arranque, si el catalogo esta vacio) llama a getProductList, dentro de un
+ *       cupo diario contado en la base de datos y nunca mientras las llamadas esten en pausa.</li>
+ * </ul>
+ */
 @Service
 @Slf4j
 public class ProductoServiceImpl implements ProductoService {
 
+    static final String OPERACION = "getProductList";
+
     private final ProductoClient productoClient;
     private final GestoPagoTokenRepository tokenRepository;
     private final GestoPagoTokenService tokenService;
+    private final CatalogoProductos catalogo;
+    private final LimiteLlamadasGestoPago limite;
+    private final CircuitoGestoPago circuito;
 
     @Value("${productos.service.id-distribuidor}")
     private Integer idDistribuidor;
@@ -38,47 +59,67 @@ public class ProductoServiceImpl implements ProductoService {
     @Value("${productos.service.codigo-dispositivo}")
     private String codigoDispositivo;
 
-    // Cache en memoria para evitar llamadas repetidas a la API
-    private final List<ProductoDto> productosCache = new CopyOnWriteArrayList<>();
-    // true tras la primera actualizacion exitosa, aunque PuntoRed devuelva una lista vacia
-    private volatile boolean cacheCargada = false;
+    /** PuntoRed permite 3 al dia; se deja 1 de margen. */
+    @Value("${productos.service.max-llamadas-diarias:2}")
+    private int maxLlamadasDiarias = 2;
 
     public ProductoServiceImpl(ProductoClient productoClient,
                                GestoPagoTokenRepository tokenRepository,
-                               GestoPagoTokenService tokenService) {
+                               GestoPagoTokenService tokenService,
+                               CatalogoProductos catalogo,
+                               LimiteLlamadasGestoPago limite,
+                               CircuitoGestoPago circuito) {
         this.productoClient = productoClient;
         this.tokenRepository = tokenRepository;
         this.tokenService = tokenService;
+        this.catalogo = catalogo;
+        this.limite = limite;
+        this.circuito = circuito;
     }
 
     @Override
     public List<ProductoDto> obtenerProductos() {
-        if (!cacheCargada) {
-            synchronized (this) {
-                // Doble verificacion: peticiones concurrentes no deben disparar varias llamadas a PuntoRed
-                if (!cacheCargada) {
-                    log.warn("Cache de productos sin cargar. Intentando actualizar desde API...");
-                    actualizarProductosDesdeApi();
-                }
-            }
+        return catalogo.listar().stream().map(ProductoServiceImpl::aDto).toList();
+    }
+
+    /** Al arrancar solo se pide el catalogo si la base de datos aun no lo tiene. */
+    @EventListener(ApplicationReadyEvent.class)
+    public void cargarSiVacio() {
+        if (!catalogo.estaVacio()) {
+            return;
         }
-        return new ArrayList<>(productosCache);
+        log.info("Catalogo de productos vacio al arrancar; se intenta cargar una vez desde PuntoRed");
+        try {
+            actualizarProductosDesdeApi();
+        } catch (RuntimeException ex) {
+            log.error("No se pudo cargar el catalogo al arrancar: {}", ex.getClass().getSimpleName());
+        }
     }
 
     @Override
     @Scheduled(cron = "${productos.service.cron}")
     public synchronized void actualizarProductosDesdeApi() {
+        if (!circuito.permite()) {
+            log.warn("Actualizacion del catalogo omitida: llamadas a GestoPago en pausa por fallas consecutivas");
+            return;
+        }
+        if (!limite.reservar(OPERACION, maxLlamadasDiarias)) {
+            return;
+        }
         log.info("Iniciando actualizacion de lista de productos desde PuntoRed. Distribuidor={}", idDistribuidor);
 
         String token = obtenerTokenActivo();
         String xmlRespuesta = llamarApi(token);
-        List<ProductoDto> productos = parsearXml(xmlRespuesta);
+        List<ProductoXml> productos = parsearXml(xmlRespuesta);
+        circuito.registrarExito();
 
-        productosCache.clear();
-        productosCache.addAll(productos);
-        cacheCargada = true;
-
-        log.info("Actualizacion de productos finalizada. Total productos obtenidos: {}", productos.size());
+        // Sin duplicados (idServicio + idProducto es unico en la tabla); se queda el primero que llega
+        Map<String, ProductoCatalogo> unicos = new LinkedHashMap<>();
+        for (ProductoXml xml : productos) {
+            unicos.putIfAbsent(xml.getIdServicio() + ":" + xml.getIdProducto(), aEntidad(xml));
+        }
+        catalogo.reemplazar(List.copyOf(unicos.values()));
+        log.info("Actualizacion de productos finalizada. Total productos guardados: {}", unicos.size());
     }
 
     // ─── Metodos privados ────────────────────────────────────────────────────
@@ -88,7 +129,7 @@ public class ProductoServiceImpl implements ProductoService {
                 tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
 
         if (tokenOpt.isEmpty()) {
-            log.warn("No se encontro token en BD. Disparando renovacion automatica contra PuntoRed...");
+            log.warn("No se encontro token en BD. Se intenta una renovacion contra PuntoRed...");
             tokenService.renovarToken();
             tokenOpt = tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
         }
@@ -104,39 +145,45 @@ public class ProductoServiceImpl implements ProductoService {
     private String llamarApi(String token) {
         try {
             String authHeader = formatBearerToken(token);
-            log.info("Llamando a PuntoRed getProductList con token dinámico...");
+            log.info("Llamando a PuntoRed getProductList...");
             String respuesta = productoClient.getProductList(authHeader);
             log.info("Respuesta recibida exitosamente de PuntoRed getProductList");
             return respuesta;
         } catch (FeignException.Unauthorized | FeignException.Forbidden ex) {
-            log.warn("Token rechazado por PuntoRed (401/403). Forzando renovacion de token en tiempo real...");
-            tokenService.renovarToken();
+            log.warn("Token rechazado por PuntoRed (401/403) en getProductList");
+            // Sin token nuevo no se reintenta: repetir con el token rechazado solo gasta cupo
+            if (!tokenService.renovarToken()) {
+                circuito.registrarFalla(OPERACION);
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                        "Token no valido o expirado. No fue posible reautenticar con PuntoRed.", ex);
+            }
             String nuevoToken = tokenRepository
                     .findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo)
                     .map(GestoPagoToken::getToken)
                     .orElse(token);
-
             try {
-                String authRetry = formatBearerToken(nuevoToken);
-                log.info("Reintentando llamada a PuntoRed getProductList con token recien renovado...");
-                return productoClient.getProductList(authRetry);
-            } catch (Exception retryEx) {
-                log.error("Fallo el reintento con token renovado: {}", retryEx.getMessage());
+                log.info("Reintentando getProductList con token recien renovado...");
+                return productoClient.getProductList(formatBearerToken(nuevoToken));
+            } catch (RuntimeException retryEx) {
+                log.error("Fallo el reintento con token renovado: {}", retryEx.getClass().getSimpleName());
+                circuito.registrarFalla(OPERACION);
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
                         "Token no valido o expirado. No fue posible reautenticar con PuntoRed.", retryEx);
             }
         } catch (FeignException.GatewayTimeout ex) {
             log.error("Timeout al llamar PuntoRed getProductList");
+            circuito.registrarFalla(OPERACION);
             throw new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT,
                     "Timeout al conectar con PuntoRed. Intente nuevamente.", ex);
         } catch (FeignException ex) {
             log.error("Error de comunicacion con PuntoRed getProductList. Status: {}", ex.status());
+            circuito.registrarFalla(OPERACION);
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Error de comunicacion con el servicio de productos.", ex);
         }
     }
 
-    private List<ProductoDto> parsearXml(String xml) {
+    private List<ProductoXml> parsearXml(String xml) {
         try {
             JAXBContext context = JAXBContext.newInstance(ProductoListResponse.class);
             ProductoListResponse response = (ProductoListResponse) context.createUnmarshaller()
@@ -147,30 +194,44 @@ public class ProductoServiceImpl implements ProductoService {
                 log.error("PuntoRed retorno codigo de error: {}", texto);
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "El servicio de productos retorno un error: " + texto);
             }
-
-            return response.getListaProductos().stream()
-                    .map(this::mapearADto)
-                    .toList();
+            return response.getListaProductos();
 
         } catch (JAXBException ex) {
             log.error("Error al parsear XML de productos: {}", ex.getMessage());
+            circuito.registrarFalla(OPERACION);
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Error al procesar la respuesta del servicio de productos.", ex);
         }
     }
 
-    private ProductoDto mapearADto(ProductoXml xml) {
+    private static ProductoCatalogo aEntidad(ProductoXml xml) {
+        ProductoCatalogo p = new ProductoCatalogo();
+        p.setIdServicio(xml.getIdServicio());
+        p.setIdProducto(xml.getIdProducto());
+        p.setIdCatTipoServicio(xml.getIdCatTipoServicio());
+        p.setServicio(xml.getServicio());
+        p.setProducto(xml.getProducto());
+        p.setPrecio(xml.getPrecio() != null ? BigDecimal.valueOf(xml.getPrecio()) : null);
+        p.setTipoFront(xml.getTipoFront());
+        p.setHasDigitoVerificador(xml.getHasDigitoVerificador());
+        p.setShowAyuda(xml.getShowAyuda());
+        p.setTipoReferencia(xml.getTipoReferencia());
+        p.setLegend(xml.getLegend());
+        return p;
+    }
+
+    private static ProductoDto aDto(ProductoCatalogo p) {
         ProductoDto dto = new ProductoDto();
-        dto.setIdServicio(xml.getIdServicio());
-        dto.setIdProducto(xml.getIdProducto());
-        dto.setIdCatTipoServicio(xml.getIdCatTipoServicio());
-        dto.setServicio(xml.getServicio());
-        dto.setProducto(xml.getProducto());
-        dto.setPrecio(xml.getPrecio());
-        dto.setTipoFront(xml.getTipoFront());
-        dto.setHasDigitoVerificador(xml.getHasDigitoVerificador());
-        dto.setShowAyuda(xml.getShowAyuda());
-        dto.setTipoReferencia(xml.getTipoReferencia());
-        dto.setLegend(xml.getLegend());
+        dto.setIdServicio(p.getIdServicio());
+        dto.setIdProducto(p.getIdProducto());
+        dto.setIdCatTipoServicio(p.getIdCatTipoServicio());
+        dto.setServicio(p.getServicio());
+        dto.setProducto(p.getProducto());
+        dto.setPrecio(p.getPrecio() != null ? p.getPrecio().doubleValue() : null);
+        dto.setTipoFront(p.getTipoFront());
+        dto.setHasDigitoVerificador(p.getHasDigitoVerificador());
+        dto.setShowAyuda(p.getShowAyuda());
+        dto.setTipoReferencia(p.getTipoReferencia());
+        dto.setLegend(p.getLegend());
         return dto;
     }
 
