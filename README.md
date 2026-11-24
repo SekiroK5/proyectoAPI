@@ -1,5 +1,9 @@
 # API REST — Onboarding de Clientes Personas Físicas
 
+> **Plataforma de pagos GestoPago:** este repositorio incluye la API (raíz), la app web (`web/`, React + Vite)
+> y la app móvil (`mobile/`, Flutter). Ver el [documento técnico](docs/documento-tecnico.md) y la
+> [guía de ejecución y evidencias](docs/guia-evidencias.md).
+
 ## 1. Descripción del proyecto
 
 API REST para registrar clientes personas físicas, validar su información, abrirles automáticamente una cuenta bancaria con saldo inicial y administrarlos: consulta, actualización parcial, baja lógica y búsquedas dinámicas.
