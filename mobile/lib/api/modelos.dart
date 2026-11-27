@@ -23,7 +23,9 @@ class Producto {
         logoUrl = _texto(j['logoUrl']),
         imagenReferenciaUrl = _texto(j['imagenReferenciaUrl']),
         categoria = _texto(j['categoria']) ?? 'Otros',
-        tipoOperacion = _texto(j['tipoOperacion']) ?? 'NO_SOPORTADA';
+        tipoOperacion = _texto(j['tipoOperacion']) ?? 'NO_SOPORTADA',
+        legend = _texto(j['legend']),
+        verificableEnGestoPago = j['verificableEnGestoPago'] == true;
 
   final int idServicio;
   final int idProducto;
@@ -36,6 +38,8 @@ class Producto {
   final String? imagenReferenciaUrl;
   final String categoria;
   final String tipoOperacion;
+  final String? legend;
+  final bool verificableEnGestoPago;
 
   bool get esServicio => tipoOperacion == 'PAGO_SERVICIO';
   bool get esRecarga => tipoOperacion == 'RECARGA';
@@ -52,7 +56,7 @@ class LoginRespuesta {
       : siguientePaso = j['siguientePaso'] as String,
         tokenTemporal = j['tokenTemporal'] as String;
 
-  /// CONFIGURAR_A2F o VERIFICAR_A2F.
+  /// VERIFICAR_CORREO, CONFIGURAR_A2F o VERIFICAR_A2F.
   final String siguientePaso;
   final String tokenTemporal;
 }
@@ -114,6 +118,7 @@ class Transaccion {
         numAutorizacion = _texto(j['numAutorizacion']),
         idTx = _texto(j['idTx']),
         pin = _texto(j['pin']),
+        numeroCuenta = _texto(j['numeroCuenta']),
         mensajeGestoPago = _texto(j['mensajeGestoPago']),
         fecha = DateTime.tryParse('${j['fecha']}');
 
@@ -133,6 +138,7 @@ class Transaccion {
   final String? numAutorizacion;
   final String? idTx;
   final String? pin;
+  final String? numeroCuenta;
   final String? mensajeGestoPago;
   final DateTime? fecha;
 

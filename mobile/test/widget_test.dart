@@ -95,7 +95,7 @@ void main() {
     await tester.runAsync(sesion.cargar);
     await tester.pumpAndSettle();
 
-    expect(find.text('Iniciar sesión'), findsOneWidget);
+    expect(find.text('Bienvenido de nuevo'), findsOneWidget);
     await tester.tap(find.text('Continuar'));
     await tester.pump();
     expect(find.text('Escriba su usuario o correo.'), findsOneWidget);
@@ -121,6 +121,31 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Segundo factor'), findsOneWidget);
-    expect(find.text('Escriba el código de 6 dígitos de su app autenticadora.'), findsOneWidget);
+    expect(find.text('Use su app autenticadora o pida un código por correo.'), findsOneWidget);
+    expect(find.byType(SegmentedButton<bool>), findsOneWidget);
+  });
+
+  testWidgets('correo sin confirmar muestra el paso del codigo del correo con reenvio', (tester) async {
+    final api = ApiCliente(
+      baseUrl: 'http://api',
+      cliente: MockClient((r) async => r.url.path == '/api/v1/auth/login'
+          ? _json(200, {'codigo': 0, 'mensaje': 'ok', 'datos': {'siguientePaso': 'VERIFICAR_CORREO', 'tokenTemporal': 't'}})
+          : _json(500, {})),
+    );
+    final sesion = Sesion(Servicios(api));
+    await tester.pumpWidget(GestoPagoApp(sesion: sesion));
+    await tester.runAsync(sesion.cargar);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Usuario o correo electrónico'), 'usuario.prueba');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Contraseña'), 'Clave#Prueba1');
+    await tester.tap(find.text('Continuar'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+
+    expect(find.text('Confirme su correo'), findsOneWidget);
+    expect(find.text('Código del correo'), findsOneWidget);
+    expect(find.textContaining('Reenviar código en'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
   });
 }

@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../api/api_cliente.dart';
 import '../api/modelos.dart';
+import 'dependencias.dart';
 
 final _dinero = NumberFormat.currency(locale: 'es_MX', symbol: r'$');
 
@@ -115,10 +118,11 @@ enum TipoAviso { error, exito, info, pendiente }
 
 /// Campo del codigo de 6 digitos de la app autenticadora.
 class CampoCodigo extends StatelessWidget {
-  const CampoCodigo({super.key, required this.controlador, this.habilitado = true});
+  const CampoCodigo({super.key, required this.controlador, this.habilitado = true, this.etiqueta = 'Código de su app autenticadora'});
 
   final TextEditingController controlador;
   final bool habilitado;
+  final String etiqueta;
 
   @override
   Widget build(BuildContext context) {
@@ -131,7 +135,7 @@ class CampoCodigo extends StatelessWidget {
       style: const TextStyle(fontSize: 24, letterSpacing: 8, fontFamily: 'monospace'),
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       autofillHints: const [AutofillHints.oneTimeCode],
-      decoration: const InputDecoration(labelText: 'Código de su app autenticadora', counterText: ''),
+      decoration: InputDecoration(labelText: etiqueta, counterText: ''),
       validator: (v) => v != null && RegExp(r'^\d{6}$').hasMatch(v) ? null : 'Escriba los 6 dígitos.',
     );
   }
@@ -188,6 +192,161 @@ class DetalleTransaccion extends StatelessWidget {
               ],
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// Logotipo y nombre de la plataforma con el degradado de la marca.
+class EncabezadoMarca extends StatelessWidget {
+  const EncabezadoMarca({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(gradient: degradadoMarca, borderRadius: BorderRadius.circular(13)),
+          child: const Text('G', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 20)),
+        ),
+        const SizedBox(width: 10),
+        Text('GestoPago', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      ],
+    );
+  }
+}
+
+/// Degradado de la marca (igual que en la web).
+const degradadoMarca = LinearGradient(
+  colors: [Color(0xFF2754E6), Color(0xFF6B3FF0)],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+/// Barra de pasos de un flujo (inicio de sesion, pago).
+class IndicadorPasos extends StatelessWidget {
+  const IndicadorPasos({super.key, required this.pasos, required this.actual});
+
+  final List<String> pasos;
+  final int actual;
+
+  @override
+  Widget build(BuildContext context) {
+    final colores = Theme.of(context).colorScheme;
+    return Semantics(
+      label: 'Paso ${actual + 1} de ${pasos.length}',
+      child: Row(
+        children: [
+          for (var i = 0; i < pasos.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: i <= actual ? colores.primary : colores.outlineVariant,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(pasos[i],
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: i == actual ? colores.primary : colores.onSurfaceVariant,
+                      )),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 1234567890123456 -> 1234 5678 9012 3456
+String agruparCuenta(String? numero) =>
+    RegExp(r'.{1,4}').allMatches(numero ?? '').map((m) => m.group(0)).join(' ');
+
+/// Alternativa a la app autenticadora para pagos y depositos: pide un codigo al correo del cliente.
+/// El codigo que llega se escribe en el mismo campo del codigo.
+class CodigoPorCorreo extends StatefulWidget {
+  const CodigoPorCorreo({super.key, this.habilitado = true});
+
+  final bool habilitado;
+
+  @override
+  State<CodigoPorCorreo> createState() => _CodigoPorCorreoState();
+}
+
+class _CodigoPorCorreoState extends State<CodigoPorCorreo> {
+  int _espera = 0;
+  bool _enviando = false;
+  String? _mensaje;
+  bool _error = false;
+  Timer? _temporizador;
+
+  @override
+  void dispose() {
+    _temporizador?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _pedir() async {
+    final servicios = Dependencias.of(context).servicios;
+    setState(() {
+      _enviando = true;
+      _mensaje = null;
+    });
+    try {
+      final mensaje = await servicios.enviarCodigoOperacion();
+      if (!mounted) return;
+      setState(() {
+        _mensaje = mensaje;
+        _error = false;
+        _espera = 60;
+      });
+      _temporizador?.cancel();
+      _temporizador = Timer.periodic(const Duration(seconds: 1), (t) {
+        if (!mounted || _espera <= 1) {
+          t.cancel();
+          if (mounted) setState(() => _espera = 0);
+          return;
+        }
+        setState(() => _espera--);
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _mensaje = mensajeDeError(e);
+          _error = true;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextButton.icon(
+          onPressed: !widget.habilitado || _enviando || _espera > 0 ? null : _pedir,
+          icon: const Icon(Icons.mail_outline, size: 18),
+          label: Text(_espera > 0
+              ? '¿No llegó? Reenviar en $_espera s'
+              : (_enviando ? 'Enviando código…' : '¿No tiene la app? Enviarme el código por correo')),
+        ),
+        if (_mensaje != null) Aviso(_mensaje!, tipo: _error ? TipoAviso.error : TipoAviso.exito),
       ],
     );
   }

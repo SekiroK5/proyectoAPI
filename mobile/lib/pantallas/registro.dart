@@ -4,7 +4,16 @@ import 'package:flutter/services.dart';
 import '../ui/comunes.dart';
 import '../ui/dependencias.dart';
 
+/// Lo que el registro le devuelve al login: usuario para prellenar y el mensaje de la API.
+class RegistroCompletado {
+  const RegistroCompletado(this.usuario, this.mensaje);
+
+  final String usuario;
+  final String mensaje;
+}
+
 /// Registro de un cliente nuevo. Crea el usuario y su cuenta; las mismas credenciales sirven en web y movil.
+/// Al terminar se envia un codigo al correo, que se confirma al iniciar sesion.
 class PantallaRegistro extends StatefulWidget {
   const PantallaRegistro({super.key});
 
@@ -23,6 +32,21 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
   bool _enviando = false;
 
   static final _contrasena = RegExp(r'^(?=.*\p{Lu})(?=.*\p{Ll})(?=.*\d)(?=.*[^\p{L}\d])\S{8,64}$', unicode: true);
+  static final _soloLetras = RegExp(r'^(?=.{2,50}$)\p{L}+( \p{L}+)*$', unicode: true);
+  static final _curp = RegExp(r'^[A-Z][AEIOUX][A-Z]{2}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[HMX]'
+      r'(AS|BC|BS|CC|CL|CM|CS|CH|DF|DG|GT|GR|HG|JC|MC|MN|MS|NT|NL|OC|PL|QT|QR|SP|SL|SR|TC|TS|TL|VZ|YN|ZS|NE)'
+      r'[B-DF-HJ-NP-TV-Z]{3}[0-9A-Z]\d$');
+  static final _rfc = RegExp(r'^[A-Z&Ñ]{3,4}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[A-Z0-9]{3}$');
+  static final _requisitos = <(String, bool Function(String))>[
+    ('De 8 a 64 caracteres', (c) => c.length >= 8 && c.length <= 64),
+    ('Una mayúscula', (c) => RegExp(r'\p{Lu}', unicode: true).hasMatch(c)),
+    ('Una minúscula', (c) => RegExp(r'\p{Ll}', unicode: true).hasMatch(c)),
+    ('Un número', (c) => RegExp(r'\d').hasMatch(c)),
+    ('Un carácter especial', (c) => RegExp(r'[^\p{L}\d\s]', unicode: true).hasMatch(c)),
+    ('Sin espacios', (c) => c.isNotEmpty && !c.contains(RegExp(r'\s'))),
+  ];
+
+  String? _letras(String v) => _soloLetras.hasMatch(v) ? null : 'De 2 a 50 letras, sin números ni símbolos.';
 
   TextEditingController _ctl(String campo, [String inicial = '']) =>
       _c.putIfAbsent(campo, () => TextEditingController(text: inicial));
@@ -79,8 +103,9 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
       },
     };
     try {
-      await Dependencias.of(context).servicios.registrar(alta);
-      setState(() => _exito = 'Cuenta creada. Ya puede iniciar sesión; la primera vez configurará su segundo factor.');
+      final mensaje = await Dependencias.of(context).servicios.registrar(alta);
+      if (!mounted) return;
+      Navigator.of(context).pop(RegistroCompletado(alta['nombreUsuario'] as String, mensaje));
     } catch (e) {
       setState(() => _error = mensajeDeError(e));
     } finally {
@@ -138,10 +163,10 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
             padding: const EdgeInsets.all(16),
             children: [
               _seccion('Datos personales', [
-                _campo('nombre', 'Nombre', max: 50),
-                _campo('segundoNombre', 'Segundo nombre', obligatorio: false, max: 50),
-                _campo('apellidoPaterno', 'Apellido paterno', max: 50),
-                _campo('apellidoMaterno', 'Apellido materno', max: 50),
+                _campo('nombre', 'Nombre', max: 50, validar: _letras),
+                _campo('segundoNombre', 'Segundo nombre', obligatorio: false, max: 50, validar: _letras),
+                _campo('apellidoPaterno', 'Apellido paterno', max: 50, validar: _letras),
+                _campo('apellidoMaterno', 'Apellido materno', max: 50, validar: _letras),
                 SizedBox(
                   width: 320,
                   child: OutlinedButton.icon(
@@ -162,11 +187,9 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                   ),
                 ),
                 _campo('curp', 'CURP', max: 18,
-                    validar: (v) => RegExp(r'^[A-Z][AEIOUX][A-Z]{2}\d{6}[HMX][A-Z]{5}[0-9A-Z]\d$').hasMatch(v.toUpperCase())
-                        ? null
-                        : 'CURP de 18 caracteres con el formato oficial.'),
+                    validar: (v) => _curp.hasMatch(v.toUpperCase()) ? null : 'La CURP no cumple el formato oficial (18 caracteres).'),
                 _campo('rfc', 'RFC', max: 13,
-                    validar: (v) => RegExp(r'^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$').hasMatch(v.toUpperCase()) ? null : 'RFC no válido.'),
+                    validar: (v) => _rfc.hasMatch(v.toUpperCase()) ? null : 'RFC no válido (12 o 13 caracteres).'),
                 SizedBox(
                   width: 320,
                   child: DropdownButtonFormField<String>(
@@ -180,7 +203,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                     onChanged: (v) => setState(() => _sexo = v!),
                   ),
                 ),
-                _campo('nacionalidad', 'Nacionalidad', inicial: 'Mexicana', max: 50),
+                _campo('nacionalidad', 'Nacionalidad', inicial: 'Mexicana', max: 50, validar: _letras),
                 SizedBox(
                   width: 320,
                   child: DropdownButtonFormField<String>(
@@ -213,6 +236,25 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                 _campo('telefonoAlt', 'Teléfono alternativo', obligatorio: false, max: 10, teclado: TextInputType.phone,
                     formato: digitos, validar: (v) => v.length == 10 ? null : '10 dígitos.'),
               ]),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _ctl('contrasena'),
+                builder: (context, valor, _) => Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      for (final (texto, cumple) in _requisitos)
+                        Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(cumple(valor.text) ? Icons.check_circle : Icons.radio_button_unchecked,
+                              size: 16, color: cumple(valor.text) ? Colors.green : Theme.of(context).hintColor),
+                          const SizedBox(width: 4),
+                          Text(texto, style: const TextStyle(fontSize: 12)),
+                        ]),
+                    ],
+                  ),
+                ),
+              ),
               _seccion('Domicilio', [
                 _campo('calle', 'Calle', max: 100),
                 _campo('numExt', 'Número exterior', max: 20),

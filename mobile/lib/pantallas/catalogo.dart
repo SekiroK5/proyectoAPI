@@ -153,12 +153,13 @@ class _TarjetaProducto extends StatelessWidget {
               Row(
                 children: [
                   Chip(
-                    label: Text(p.esRecarga ? 'Recarga' : 'Servicio'),
+                    label: Text(p.esRecarga ? 'Recarga' : (p.verificableEnGestoPago ? 'Verificable' : 'Servicio')),
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                   ),
                   const Spacer(),
-                  if (p.esRecarga && p.precio != null) Text(dinero(p.precio), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (p.esRecarga && p.precio != null) Text(dinero(p.precio), style: const TextStyle(fontWeight: FontWeight.bold))
+                  else if (p.esServicio) Text('Monto libre', style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
                 ],
               ),
             ],

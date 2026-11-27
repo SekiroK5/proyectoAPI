@@ -23,6 +23,24 @@ class Servicios {
   Future<Respuesta<TokenRespuesta>> verificarA2F(String tokenTemporal, String codigo) => _datos(
       'POST', '/api/v1/auth/a2f/verificacion', {'tokenTemporal': tokenTemporal, 'codigo': codigo}, TokenRespuesta.fromJson);
 
+  Future<Respuesta<LoginRespuesta>> verificarCorreo(String tokenTemporal, String codigo) => _datos(
+      'POST', '/api/v1/auth/correo/verificacion', {'tokenTemporal': tokenTemporal, 'codigo': codigo}, LoginRespuesta.fromJson);
+
+  Future<Respuesta<LoginRespuesta>> reenviarCorreo(String tokenTemporal) =>
+      _datos('POST', '/api/v1/auth/correo/reenvio', {'tokenTemporal': tokenTemporal}, LoginRespuesta.fromJson);
+
+  Future<Respuesta<LoginRespuesta>> enviarCodigoInicioSesion(String tokenTemporal) =>
+      _datos('POST', '/api/v1/auth/a2f/correo/envio', {'tokenTemporal': tokenTemporal}, LoginRespuesta.fromJson);
+
+  Future<Respuesta<TokenRespuesta>> verificarCodigoInicioSesion(String tokenTemporal, String codigo) => _datos(
+      'POST', '/api/v1/auth/a2f/correo/verificacion', {'tokenTemporal': tokenTemporal, 'codigo': codigo}, TokenRespuesta.fromJson);
+
+  /// Codigo por correo para autorizar un pago o deposito (en lugar de la app autenticadora).
+  Future<String> enviarCodigoOperacion() async {
+    final json = await api.llamar('POST', '/api/v1/auth/codigo-operacion') as Map<String, dynamic>;
+    return json['mensaje'] as String? ?? 'Le enviamos un código a su correo.';
+  }
+
   Future<void> cerrarSesion() => api.llamar('POST', '/api/v1/auth/logout');
 
   Future<String> registrar(Map<String, dynamic> alta) async {

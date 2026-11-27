@@ -172,6 +172,8 @@ class _PantallaPagoState extends State<PantallaPago> {
                 children: [
                   _encabezado(),
                   const SizedBox(height: 12),
+                  IndicadorPasos(pasos: const ['Datos', 'Confirmación', 'Resultado'], actual: _paso.index),
+                  const SizedBox(height: 12),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -300,7 +302,7 @@ class _PantallaPagoState extends State<PantallaPago> {
       ('Servicio', '${p.servicio} — ${p.producto}'),
       if (p.esServicio) ('Referencia', _verificacion!.referencia),
       if (p.esRecarga && !p.sinTelefono) ('Teléfono', _telefono.text),
-      ('Cuenta de cargo', sesion.numeroCuenta ?? ''),
+      ('Cuenta de cargo', agruparCuenta(sesion.numeroCuenta)),
       ('Importe a cobrar', dinero(monto)),
     ];
     return Form(
@@ -322,7 +324,8 @@ class _PantallaPagoState extends State<PantallaPago> {
               ),
             ),
           const SizedBox(height: 12),
-          CampoCodigo(controlador: _codigo, habilitado: !_trabajando),
+          CampoCodigo(controlador: _codigo, etiqueta: 'Código de autorización (app o correo)', habilitado: !_trabajando),
+          CodigoPorCorreo(habilitado: !_trabajando),
           const SizedBox(height: 12),
           if (_error != null) ...[Aviso(_error!, tipo: TipoAviso.error), const SizedBox(height: 12)],
           FilledButton(
@@ -340,26 +343,64 @@ class _PantallaPagoState extends State<PantallaPago> {
   }
 
   Widget _resultado() {
-    final aviso = switch (_tipoResultado!) {
-      _TipoResultado.exito => Aviso('¡Pago exitoso! $_mensajeResultado', tipo: TipoAviso.exito),
-      _TipoResultado.pendiente => Aviso(
-          'Pago pendiente de confirmar. $_mensajeResultado Consulte el estatus en su historial.',
-          tipo: TipoAviso.pendiente),
-      _TipoResultado.rechazo => Aviso('No se realizó el pago. $_mensajeResultado', tipo: TipoAviso.error),
+    final (titulo, icono, color) = switch (_tipoResultado!) {
+      _TipoResultado.exito => ('¡Pago exitoso!', Icons.check_rounded, Colors.green),
+      _TipoResultado.pendiente => ('Pago pendiente de confirmar', Icons.schedule_rounded, Colors.orange),
+      _TipoResultado.rechazo => ('No se realizó el pago', Icons.close_rounded, Colors.red),
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        aviso,
-        if (_tx != null) ...[const SizedBox(height: 16), DetalleTransaccion(tx: _tx!)],
-        const SizedBox(height: 16),
-        FilledButton(
-          onPressed: () {
-            seccionActual.value = Seccion.historial;
-            Navigator.of(context).pop();
-          },
-          child: const Text('Ver historial'),
+        Center(
+          child: CircleAvatar(
+            radius: 36,
+            backgroundColor: color.withValues(alpha: 0.15),
+            child: Icon(icono, size: 40, color: color.shade700),
+          ),
         ),
+        const SizedBox(height: 12),
+        Text(titulo, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        Text(
+          _tipoResultado == _TipoResultado.pendiente ? '$_mensajeResultado Consulte el estatus en su historial.' : _mensajeResultado,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+        if (_tx != null) ...[const SizedBox(height: 16), DetalleTransaccion(tx: _tx!)],
+        if (_tx?.pin != null && p.legend != null) ...[
+          const SizedBox(height: 12),
+          Text('Instrucciones de canje', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(p.legend!, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ],
+        const SizedBox(height: 16),
+        if (_tipoResultado == _TipoResultado.rechazo) ...[
+          if (RegExp('saldo insuficiente', caseSensitive: false).hasMatch(_mensajeResultado)) ...[
+            FilledButton(
+              onPressed: () {
+                seccionActual.value = Seccion.cuenta;
+                Navigator.of(context).pop();
+              },
+              child: const Text('Depositar a mi cuenta'),
+            ),
+            const SizedBox(height: 8),
+          ],
+          OutlinedButton(
+            onPressed: () => setState(() {
+              _codigo.clear();
+              _tipoResultado = null;
+              _paso = _Paso.datos;
+            }),
+            child: const Text('Intentar de nuevo'),
+          ),
+        ] else
+          FilledButton(
+            onPressed: () {
+              seccionActual.value = Seccion.historial;
+              Navigator.of(context).pop();
+            },
+            child: const Text('Ver historial'),
+          ),
         const SizedBox(height: 8),
         OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Volver al catálogo')),
       ],

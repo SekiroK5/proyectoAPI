@@ -69,13 +69,10 @@ class _PantallaCuentaState extends State<PantallaCuenta> {
     }
   }
 
-  String _agrupar(String numero) =>
-      RegExp(r'.{1,4}').allMatches(numero).map((m) => m.group(0)).join(' ');
 
   @override
   Widget build(BuildContext context) {
     final sesion = Dependencias.of(context).sesion;
-    final colores = Theme.of(context).colorScheme;
     return RefreshIndicator(
       onRefresh: _cargar,
       child: ListView(
@@ -87,30 +84,30 @@ class _PantallaCuentaState extends State<PantallaCuenta> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Card(
-                    color: colores.primaryContainer,
+                  Container(
+                    decoration: BoxDecoration(gradient: degradadoMarca, borderRadius: BorderRadius.circular(20)),
                     child: Padding(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(22),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Hola, ${sesion.nombreUsuario ?? ''}', style: TextStyle(color: colores.onPrimaryContainer)),
+                          Text('Hola, ${sesion.nombreUsuario ?? ''}', style: TextStyle(color: Colors.white)),
                           const SizedBox(height: 12),
-                          Text('Cuenta', style: TextStyle(color: colores.onPrimaryContainer)),
-                          SelectableText(_agrupar(sesion.numeroCuenta ?? ''),
-                              style: TextStyle(fontFamily: 'monospace', fontSize: 18, color: colores.onPrimaryContainer)),
+                          Text('Cuenta', style: TextStyle(color: Colors.white)),
+                          SelectableText(agruparCuenta(sesion.numeroCuenta),
+                              style: TextStyle(fontFamily: 'monospace', fontSize: 18, color: Colors.white)),
                           const SizedBox(height: 12),
-                          Text('Saldo disponible', style: TextStyle(color: colores.onPrimaryContainer)),
+                          Text('Saldo disponible', style: TextStyle(color: Colors.white)),
                           if (_error != null)
                             Aviso(_error!, tipo: TipoAviso.error)
                           else if (_cuenta == null)
                             const LinearProgressIndicator()
                           else
-                            Text(dinero(_cuenta!.saldo),
+                            Text(dinero(_cuenta!.saldo), key: const Key('saldo'),
                                 style: Theme.of(context)
                                     .textTheme
                                     .headlineMedium
-                                    ?.copyWith(fontWeight: FontWeight.bold, color: colores.onPrimaryContainer)),
+                                    ?.copyWith(fontWeight: FontWeight.bold, color: Colors.white)),
                         ],
                       ),
                     ),
@@ -140,7 +137,8 @@ class _PantallaCuentaState extends State<PantallaCuenta> {
                               },
                             ),
                             const SizedBox(height: 8),
-                            CampoCodigo(controlador: _codigo, habilitado: !_depositando),
+                            CampoCodigo(controlador: _codigo, etiqueta: 'Código de autorización (app o correo)', habilitado: !_depositando),
+          CodigoPorCorreo(habilitado: !_depositando),
                             const SizedBox(height: 12),
                             if (_errorDeposito != null) ...[
                               Aviso(_errorDeposito!, tipo: TipoAviso.error),

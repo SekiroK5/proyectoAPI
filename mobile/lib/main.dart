@@ -27,12 +27,42 @@ class GestoPagoApp extends StatelessWidget {
 
   final Sesion sesion;
 
-  static const _semilla = Color(0xFF0B6E4F);
+  /// Mismo azul de marca que la app web.
+  static const _semilla = Color(0xFF2754E6);
 
-  ThemeData _tema(Brightness brillo) => ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: _semilla, brightness: brillo),
-        inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
-      );
+  ThemeData _tema(Brightness brillo) {
+    final colores = ColorScheme.fromSeed(seedColor: _semilla, brightness: brillo);
+    final redondeado = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
+    return ThemeData(
+      colorScheme: colores,
+      scaffoldBackgroundColor: brillo == Brightness.light ? const Color(0xFFF3F5FA) : const Color(0xFF0B1020),
+      cardTheme: CardThemeData(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: colores.outlineVariant),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: colores.surface,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colores.outlineVariant),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50), shape: redondeado,
+            textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48), shape: redondeado),
+      ),
+      chipTheme: ChipThemeData(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999))),
+      navigationBarTheme: NavigationBarThemeData(indicatorColor: colores.primaryContainer),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
