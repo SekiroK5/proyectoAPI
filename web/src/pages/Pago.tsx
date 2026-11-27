@@ -4,7 +4,8 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError, mensajeDeError } from '../api/cliente'
 import { catalogo, pagos } from '../api/servicios'
 import type { Producto, Transaccion, Verificacion } from '../api/tipos'
-import { Aviso, CampoCodigo, Cargando, Logo, dinero } from '../components/Comunes'
+import { Aviso, CampoCodigo, CodigoPorCorreo, Cargando, Logo, Pasos, agruparCuenta, dinero } from '../components/Comunes'
+import { Icono } from '../components/Iconos'
 import { DetalleTransaccion } from '../components/DetalleTransaccion'
 import { useSesion } from '../sesion/Sesion'
 
@@ -34,6 +35,7 @@ export function Pago() {
   const [monto, setMonto] = useState('')
   const [codigo, setCodigo] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [errorReferencia, setErrorReferencia] = useState<string | null>(null)
   const [trabajando, setTrabajando] = useState(false)
   const [resultado, setResultado] = useState<Resultado | null>(null)
 
@@ -53,7 +55,7 @@ export function Pago() {
   }, [idServicio, idProducto])
 
   if (errorCarga) return <Aviso tipo="error">{errorCarga} <Link to="/catalogo">Volver al catálogo</Link></Aviso>
-  if (!producto || !sesion) return <Cargando />
+  if (!producto || !sesion) return <Cargando texto="Cargando producto…" />
 
   const esServicio = producto.tipoOperacion === 'PAGO_SERVICIO'
   // Tarjetas de regalo y PINes (categorías 10 y 11): GestoPago no requiere teléfono
@@ -62,10 +64,10 @@ export function Pago() {
 
   async function verificar(e: FormEvent) {
     e.preventDefault()
-    setError(null)
+    setErrorReferencia(null)
     setVerificacion(null)
     if (telefonoReferencia && !/^\d{10}$/.test(referencia)) {
-      setError('La referencia de este servicio es un número de teléfono de 10 dígitos.')
+      setErrorReferencia('La referencia de este servicio es un número de teléfono de 10 dígitos.')
       return
     }
     setTrabajando(true)
@@ -76,7 +78,7 @@ export function Pago() {
       const pendiente = Number(v.saldoPendiente)
       if (Number.isFinite(pendiente) && pendiente > 0) setMonto(pendiente.toFixed(2))
     } catch (err) {
-      setError(mensajeDeError(err))
+      setErrorReferencia(mensajeDeError(err))
     } finally {
       setTrabajando(false)
     }
@@ -135,9 +137,11 @@ export function Pago() {
     }
   }
 
+  const indicePaso = paso === 'datos' ? 0 : paso === 'resumen' ? 1 : 2
+
   return (
     <section className="pago">
-      <Link to="/catalogo" className="volver">← Catálogo</Link>
+      <Link to="/catalogo" className="volver"><Icono nombre="flechaIzq" tamanio={18} /> Catálogo</Link>
       <div className="tarjeta encabezado-producto">
         <Logo url={producto.logoUrl} nombre={producto.servicio} tamanio={64} />
         <div>
@@ -146,12 +150,13 @@ export function Pago() {
           <p className="tenue chico">{producto.categoria} · {esServicio ? 'Pago de servicio' : 'Recarga'}</p>
         </div>
       </div>
+      <Pasos pasos={['Datos', 'Confirmación', 'Resultado']} actual={indicePaso} />
 
       {paso === 'datos' && (
         <div className="tarjeta">
           {esServicio && (
             <form onSubmit={verificar} className="formulario">
-              <h2>1. Referencia</h2>
+              <h2>1. Referencia del recibo</h2>
               {producto.imagenReferenciaUrl && (
                 <details className="ayuda">
                   <summary>¿Dónde encuentro la referencia?</summary>
@@ -160,16 +165,26 @@ export function Pago() {
                 </details>
               )}
               <label className="campo">
-                <span>{telefonoReferencia ? 'Número de teléfono (10 dígitos)' : 'Referencia del recibo'}</span>
+                <span>{telefonoReferencia ? 'Número de teléfono (10 dígitos)' : 'Referencia'}</span>
                 <input
                   value={referencia}
-                  onChange={(e) => { setReferencia(e.target.value.replace(/[^A-Za-z0-9-]/g, '').slice(0, 100)); setVerificacion(null) }}
+                  onChange={(e) => {
+                    setReferencia(e.target.value.replace(telefonoReferencia ? /\D/g : /[^A-Za-z0-9-]/g, '').slice(0, telefonoReferencia ? 10 : 100))
+                    setVerificacion(null)
+                    setErrorReferencia(null)
+                  }}
                   required
-                  maxLength={100}
+                  maxLength={telefonoReferencia ? 10 : 100}
                   inputMode={telefonoReferencia ? 'numeric' : 'text'}
+                  autoFocus
                 />
+                <span className="ayuda-campo">Antes de pagar verificamos que la referencia sea válida.</span>
               </label>
-              <button className="boton secundario" disabled={trabajando || !referencia}>{trabajando ? 'Verificando…' : 'Verificar referencia'}</button>
+              <button className="boton secundario" disabled={trabajando || !referencia}>
+                <Icono nombre="escudo" tamanio={18} />
+                {trabajando ? 'Verificando…' : 'Verificar referencia'}
+              </button>
+              {errorReferencia && <Aviso tipo="error">{errorReferencia}</Aviso>}
               {verificacion && (
                 <Aviso tipo={verificacion.resultado === 'VALIDA' ? 'exito' : 'info'}>
                   <strong>{verificacion.resultado === 'VALIDA' ? 'Referencia válida.' : 'Formato válido.'}</strong>{' '}
@@ -180,23 +195,32 @@ export function Pago() {
             </form>
           )}
 
-          <form onSubmit={aResumen} className="formulario">
-            <h2>{esServicio ? '2. Importe' : 'Datos de la recarga'}</h2>
+          <form onSubmit={aResumen} className="formulario"
+            style={esServicio ? { marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--borde)' } : undefined}>
+            <h2>{esServicio ? '2. Importe a pagar' : 'Datos de la recarga'}</h2>
             {!esServicio && !sinTelefono && (
               <label className="campo">
                 <span>Número de teléfono</span>
-                <input inputMode="numeric" maxLength={10} value={telefono}
-                  onChange={(e) => setTelefono(e.target.value.replace(/\D/g, '').slice(0, 10))} required />
+                <span className="entrada">
+                  <Icono nombre="telefono" tamanio={18} />
+                  <input inputMode="numeric" maxLength={10} value={telefono} autoComplete="tel-national" autoFocus
+                    onChange={(e) => setTelefono(e.target.value.replace(/\D/g, '').slice(0, 10))} required />
+                </span>
+                <span className="ayuda-campo">10 dígitos, sin espacios.</span>
               </label>
             )}
+            {!esServicio && sinTelefono && <Aviso tipo="info">Recibirá un PIN o folio de canje al terminar el pago.</Aviso>}
             <label className="campo">
-              <span>Importe</span>
-              <input inputMode="decimal" value={monto} onChange={(e) => setMonto(e.target.value)}
+              <span>Importe (MXN)</span>
+              <input inputMode="decimal" value={monto} onChange={(e) => setMonto(e.target.value.replace(/[^\d.]/g, '').slice(0, 13))}
                 disabled={!esServicio} required />
-              {!esServicio && <small className="tenue">El importe de la recarga es el precio del producto.</small>}
+              {!esServicio && <span className="ayuda-campo">El importe de la recarga es el precio del producto.</span>}
             </label>
             {error && <Aviso tipo="error">{error}</Aviso>}
-            <button className="boton" disabled={esServicio && !verificacion}>Continuar</button>
+            <button className="boton" disabled={esServicio && !verificacion}>
+              Continuar <Icono nombre="flechaDer" tamanio={18} />
+            </button>
+            {esServicio && !verificacion && <p className="tenue chico">Verifique la referencia para continuar.</p>}
           </form>
         </div>
       )}
@@ -208,29 +232,54 @@ export function Pago() {
             <dt>Servicio</dt><dd>{producto.servicio} — {producto.producto}</dd>
             {esServicio ? (<><dt>Referencia</dt><dd>{verificacion?.referencia}</dd></>)
               : !sinTelefono && (<><dt>Teléfono</dt><dd>{telefono}</dd></>)}
-            <dt>Cuenta de cargo</dt><dd className="mono">{sesion.numeroCuenta}</dd>
-            <dt>Importe a cobrar</dt><dd className="importe">{dinero(monto)}</dd>
+            <dt>Cuenta de cargo</dt><dd className="mono">{agruparCuenta(sesion.numeroCuenta)}</dd>
           </dl>
-          <CampoCodigo valor={codigo} alCambiar={setCodigo} disabled={trabajando} />
+          <div className="resumen-total">
+            <span className="tenue">Total a cobrar</span>
+            <strong className="importe grande">{dinero(monto)}</strong>
+          </div>
+          <CampoCodigo etiqueta="Código de autorización (app o correo)" valor={codigo} alCambiar={setCodigo} disabled={trabajando} autoFocus />
+          <CodigoPorCorreo disabled={trabajando} />
           {error && <Aviso tipo="error">{error}</Aviso>}
-          <button className="boton" disabled={trabajando || codigo.length !== 6}>{trabajando ? 'Procesando pago…' : `Pagar ${dinero(monto)}`}</button>
-          <button type="button" className="boton secundario" disabled={trabajando} onClick={() => setPaso('datos')}>Modificar</button>
+          <div className="acciones">
+            <button type="button" className="boton secundario" disabled={trabajando} onClick={() => { setError(null); setPaso('datos') }}>Modificar</button>
+            <button className="boton" style={{ flex: 1 }} disabled={trabajando || codigo.length !== 6}>
+              <Icono nombre="candado" tamanio={18} />
+              {trabajando ? 'Procesando pago…' : 'Pagar ' + dinero(monto)}
+            </button>
+          </div>
+          <p className="tenue chico">Al confirmar se aparta el importe de su cuenta. Si GestoPago rechaza el pago, se le devuelve.</p>
         </form>
       )}
 
       {paso === 'resultado' && resultado && (
         <div className="tarjeta">
-          {resultado.tipo === 'exito' && <Aviso tipo="exito"><strong>¡Pago exitoso!</strong> {resultado.mensaje}</Aviso>}
-          {resultado.tipo === 'pendiente' && (
-            <Aviso tipo="pendiente">
-              <strong>Pago pendiente de confirmar.</strong> {resultado.mensaje} Consulte el estatus en su historial.
-            </Aviso>
-          )}
-          {resultado.tipo === 'rechazo' && <Aviso tipo="error"><strong>No se realizó el pago.</strong> {resultado.mensaje}</Aviso>}
-          {'tx' in resultado && <DetalleTransaccion tx={resultado.tx} />}
-          <div className="acciones">
-            <Link className="boton" to="/historial">Ver historial</Link>
-            <Link className="boton secundario" to="/catalogo">Volver al catálogo</Link>
+          <div className="resultado">
+            <span className={'resultado-icono ' + (resultado.tipo === 'exito' ? 'exito' : resultado.tipo === 'rechazo' ? 'error' : 'pendiente')}>
+              <Icono nombre={resultado.tipo === 'exito' ? 'check' : resultado.tipo === 'rechazo' ? 'x' : 'reloj'} tamanio={36} />
+            </span>
+            <h2>{resultado.tipo === 'exito' ? '¡Pago exitoso!' : resultado.tipo === 'rechazo' ? 'No se realizó el pago' : 'Pago pendiente de confirmar'}</h2>
+            <p className="tenue">
+              {resultado.mensaje}
+              {resultado.tipo === 'pendiente' && ' Consulte el estatus en su historial.'}
+            </p>
+          </div>
+          {'tx' in resultado && <DetalleTransaccion tx={resultado.tx} leyenda={producto.legend} />}
+          <div className="acciones" style={{ marginTop: '1.25rem' }}>
+            {resultado.tipo === 'rechazo' ? (
+              <>
+                {/saldo insuficiente/i.test(resultado.mensaje) && <Link className="boton" to="/cuenta">Depositar a mi cuenta</Link>}
+                <button type="button" className="boton secundario" onClick={() => { setResultado(null); setCodigo(''); setPaso('datos') }}>
+                  Intentar de nuevo
+                </button>
+                <Link className="boton secundario" to="/catalogo">Volver al catálogo</Link>
+              </>
+            ) : (
+              <>
+                <Link className="boton" to="/historial">Ver historial</Link>
+                <Link className="boton secundario" to="/catalogo">Volver al catálogo</Link>
+              </>
+            )}
           </div>
         </div>
       )}

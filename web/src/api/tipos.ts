@@ -34,7 +34,7 @@ export interface Producto {
   verificableEnGestoPago?: boolean
 }
 
-export type PasoLogin = 'CONFIGURAR_A2F' | 'VERIFICAR_A2F'
+export type PasoLogin = 'VERIFICAR_CORREO' | 'CONFIGURAR_A2F' | 'VERIFICAR_A2F' | 'VERIFICAR_CODIGO_CORREO'
 
 export interface LoginRespuesta {
   siguientePaso: PasoLogin
