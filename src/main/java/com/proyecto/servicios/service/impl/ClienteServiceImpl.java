@@ -101,12 +101,17 @@ public class ClienteServiceImpl implements ClienteService {
     @Override
     @Transactional(value = "sfTransactionManager", readOnly = true)
     public ApiResponse<PaginaResponse<ClienteResponse>> listar() {
-        return buscar(new ClienteBusquedaRequest());
+        return paginaDeClientes(new ClienteBusquedaRequest());
     }
 
     @Override
     @Transactional(value = "sfTransactionManager", readOnly = true)
     public ApiResponse<PaginaResponse<ClienteResponse>> buscar(ClienteBusquedaRequest filtro) {
+        return paginaDeClientes(filtro);
+    }
+
+    /** Busqueda paginada compartida por listar y buscar (corre dentro de la transaccion de quien la llama). */
+    private ApiResponse<PaginaResponse<ClienteResponse>> paginaDeClientes(ClienteBusquedaRequest filtro) {
         PaginaResponse<ClienteResponse> pagina = PaginaResponse.of(
                 clienteRepository.findAll(ClienteSpecification.desde(filtro), filtro.toPageable(ORDEN)),
                 ClienteMapper::aResponse);

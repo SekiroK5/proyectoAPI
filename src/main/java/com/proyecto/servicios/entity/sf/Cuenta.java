@@ -8,6 +8,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "cuentas")
@@ -42,8 +43,8 @@ public class Cuenta {
 
     @PrePersist
     void onCreate() {
-        this.fechaApertura = LocalDateTime.now();
-        this.fechaActualizacion = LocalDateTime.now();
+        this.fechaApertura = LocalDateTime.now(ZoneId.systemDefault());
+        this.fechaActualizacion = LocalDateTime.now(ZoneId.systemDefault());
         if (this.saldo == null) {
             this.saldo = BigDecimal.ZERO;
         }
@@ -54,6 +55,6 @@ public class Cuenta {
 
     @PreUpdate
     void onUpdate() {
-        this.fechaActualizacion = LocalDateTime.now();
+        this.fechaActualizacion = LocalDateTime.now(ZoneId.systemDefault());
     }
 }

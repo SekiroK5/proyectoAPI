@@ -7,6 +7,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Producto del catalogo de GestoPago (getProductList), guardado en la base de datos.
@@ -61,6 +62,6 @@ public class ProductoCatalogo {
     @PrePersist
     @PreUpdate
     void alGuardar() {
-        this.fechaActualizacion = LocalDateTime.now();
+        this.fechaActualizacion = LocalDateTime.now(ZoneId.systemDefault());
     }
 }

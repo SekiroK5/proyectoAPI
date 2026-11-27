@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "domicilios")
@@ -47,7 +48,7 @@ public class Domicilio {
 
     @PrePersist
     void onCreate() {
-        this.fechaCreacion = LocalDateTime.now();
+        this.fechaCreacion = LocalDateTime.now(ZoneId.systemDefault());
         if (this.pais == null || this.pais.isBlank()) {
             this.pais = "Mexico";
         }

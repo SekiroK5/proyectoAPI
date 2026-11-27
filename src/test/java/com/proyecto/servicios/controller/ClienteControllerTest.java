@@ -249,7 +249,7 @@ class ClienteControllerTest {
                 .andExpect(status().isOk());
 
         ClienteUpdateRequest req = captor.getValue();
-        assertThat(req.getTelefonoAlternativo()).isEqualTo(Optional.empty()); // null explicito
+        assertThat(req.getTelefonoAlternativo()).isEmpty(); // null explicito
         assertThat(req.getSegundoNombre()).isNull();                          // omitido
     }
 

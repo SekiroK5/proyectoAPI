@@ -135,15 +135,9 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         }
         Cuenta cuenta = encontrada.get();
         Cliente cliente = cuenta.getCliente();
-        if (!cliente.getId().equals(comando.clienteId())) {
-            log.warn("Cliente ID={} intento pagar con la cuenta del cliente ID={}", comando.clienteId(), cliente.getId());
-            return ApiResponse.error(HttpStatus.FORBIDDEN, MSG_CUENTA_AJENA);
-        }
-        if (!Boolean.TRUE.equals(cliente.getActivo()) || cuenta.getEstatus() != EstatusCuenta.ACTIVA) {
-            return ApiResponse.error(HttpStatus.FORBIDDEN, MSG_INACTIVO);
-        }
-        if (cuenta.getSaldo().compareTo(request.getMonto()) < 0) {
-            return ApiResponse.error(HttpStatus.CONFLICT, MSG_SALDO);
+        ApiResponse<TransaccionResponse> rechazoCuenta = validarCuenta(cuenta, comando.clienteId(), request);
+        if (rechazoCuenta != null) {
+            return rechazoCuenta;
         }
 
         // ── 2. Producto del catalogo y reglas de tipoFront (antes del 2FA para no gastar el codigo) ──
@@ -199,6 +193,22 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
 
         // ── 7. Respuesta ──
         return responder(tx, resultado, producto.get());
+    }
+
+    /** Propietario, cliente y cuenta activos y saldo suficiente. Devuelve null si puede pagar. */
+    private ApiResponse<TransaccionResponse> validarCuenta(Cuenta cuenta, Integer clienteId, TransaccionRequest request) {
+        Cliente cliente = cuenta.getCliente();
+        if (!cliente.getId().equals(clienteId)) {
+            log.warn("Cliente ID={} intento pagar con la cuenta del cliente ID={}", clienteId, cliente.getId());
+            return ApiResponse.error(HttpStatus.FORBIDDEN, MSG_CUENTA_AJENA);
+        }
+        if (!Boolean.TRUE.equals(cliente.getActivo()) || cuenta.getEstatus() != EstatusCuenta.ACTIVA) {
+            return ApiResponse.error(HttpStatus.FORBIDDEN, MSG_INACTIVO);
+        }
+        if (cuenta.getSaldo().compareTo(request.getMonto()) < 0) {
+            return ApiResponse.error(HttpStatus.CONFLICT, MSG_SALDO);
+        }
+        return null;
     }
 
     private ApiResponse<TransaccionResponse> responder(Transaccion tx, Resultado resultado, ProductoDto producto) {

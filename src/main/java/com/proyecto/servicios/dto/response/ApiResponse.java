@@ -19,8 +19,8 @@ import org.springframework.http.HttpStatus;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ApiResponse<T> extends GenericResponse {
 
-    public static final int EXITO = 0;
-    public static final int ERROR = 1;
+    public static final int CODIGO_EXITO = 0;
+    public static final int CODIGO_ERROR = 1;
 
     private final T datos;
 
@@ -35,10 +35,10 @@ public class ApiResponse<T> extends GenericResponse {
     }
 
     public static <T> ApiResponse<T> exito(HttpStatus status, String mensaje, T datos) {
-        return new ApiResponse<>(EXITO, mensaje, datos, status);
+        return new ApiResponse<>(CODIGO_EXITO, mensaje, datos, status);
     }
 
     public static <T> ApiResponse<T> error(HttpStatus status, String mensaje) {
-        return new ApiResponse<>(ERROR, mensaje, null, status);
+        return new ApiResponse<>(CODIGO_ERROR, mensaje, null, status);
     }
 }

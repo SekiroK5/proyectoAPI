@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Igual que el resto de la API, los errores de negocio no usan excepciones: se responden con codigo 1
@@ -73,7 +74,8 @@ public class AuthServiceImpl implements AuthService {
         this.totp = totp;
         this.intentosFallidos = intentosFallidos;
         this.emisorA2F = emisorA2F;
-        this.hashFicticio = passwordEncoder.encode("contrasena-ficticia");
+        // Valor aleatorio por arranque: no es una contrasena real ni queda escrito en el codigo
+        this.hashFicticio = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
     @Override

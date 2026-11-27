@@ -32,7 +32,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -187,7 +186,7 @@ class ProductoServiceImplTest {
     @Test
     @DisplayName("Token rechazado (403) y renovado: reintenta una vez con el token nuevo")
     void actualizar_tokenRechazado_renovado() {
-        when(productoClient.getProductList(eq("Bearer token-de-prueba-123")))
+        when(productoClient.getProductList("Bearer token-de-prueba-123"))
                 .thenThrow(mock(FeignException.Forbidden.class))
                 .thenReturn(XML_EXITOSO);
         when(tokenService.renovarToken()).thenReturn(true);

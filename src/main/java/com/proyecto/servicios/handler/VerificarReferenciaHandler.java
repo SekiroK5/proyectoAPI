@@ -106,25 +106,34 @@ public class VerificarReferenciaHandler implements Handler<VerificarReferenciaCo
             verificacion.setResultado(ResultadoVerificacion.FORMATO_VALIDO);
             verificacion.setVerificadaGestoPago(false);
             verificacion.setMensaje(MSG_SOLO_FORMATO);
-        } else {
-            Resultado resultado = gateway.verificarReferencia(payload(deVerificacion.get(), request.getReferencia()));
-            if (!resultado.tieneRespuesta()) {
-                // Sin respuesta legible no se puede afirmar nada sobre la referencia
-                return ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE, MSG_SIN_RESPUESTA);
-            }
-            boolean valida = "01".equals(resultado.codigo());
-            verificacion.setResultado(valida ? ResultadoVerificacion.VALIDA : ResultadoVerificacion.INVALIDA);
-            verificacion.setVerificadaGestoPago(true);
-            verificacion.setMensaje(recortar(resultado.xml().texto()));
-            verificacion.setSaldoPendiente(valida ? saldo(resultado) : null);
+        } else if (!consultarGestoPago(verificacion, deVerificacion.get(), request.getReferencia())) {
+            // Sin respuesta legible no se puede afirmar nada sobre la referencia
+            return ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE, MSG_SIN_RESPUESTA);
         }
         verificacionRepository.save(verificacion);
         log.info("Referencia verificada para cliente ID={} servicio={} resultado={}",
                 comando.clienteId(), request.getIdServicio(), verificacion.getResultado());
+        return responder(verificacion, producto);
+    }
 
+    /** Consulta verifyReference y guarda el resultado en la verificacion. False si GestoPago no respondio. */
+    private boolean consultarGestoPago(VerificacionReferencia verificacion, ProductoCatalogo deVerificacion, String referencia) {
+        Resultado resultado = gateway.verificarReferencia(payload(deVerificacion, referencia));
+        if (!resultado.tieneRespuesta()) {
+            return false;
+        }
+        boolean valida = "01".equals(resultado.codigo());
+        verificacion.setResultado(valida ? ResultadoVerificacion.VALIDA : ResultadoVerificacion.INVALIDA);
+        verificacion.setVerificadaGestoPago(true);
+        verificacion.setMensaje(recortar(resultado.xml().texto()));
+        verificacion.setSaldoPendiente(valida ? saldo(resultado) : null);
+        return true;
+    }
+
+    private ApiResponse<VerificacionReferenciaResponse> responder(VerificacionReferencia verificacion, ProductoCatalogo producto) {
         if (verificacion.getResultado() == ResultadoVerificacion.INVALIDA) {
-            return ApiResponse.error(HttpStatus.UNPROCESSABLE_ENTITY, "La referencia no es válida"
-                    + (verificacion.getMensaje() != null ? ": " + verificacion.getMensaje() : "."));
+            String detalle = verificacion.getMensaje() != null ? ": " + verificacion.getMensaje() : ".";
+            return ApiResponse.error(HttpStatus.UNPROCESSABLE_ENTITY, "La referencia no es válida" + detalle);
         }
         String mensaje = verificacion.getResultado() == ResultadoVerificacion.VALIDA
                 ? "Referencia válida." : MSG_SOLO_FORMATO;

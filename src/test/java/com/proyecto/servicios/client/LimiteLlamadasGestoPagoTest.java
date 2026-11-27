@@ -7,7 +7,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.sql.Date;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -38,17 +37,17 @@ class LimiteLlamadasGestoPagoTest {
     @Test
     @DisplayName("Si el UPSERT condicional actualiza una fila, la llamada cabe en el cupo")
     void dentroDelCupo() {
-        when(jdbc.update(anyString(), eq(Date.valueOf(LocalDate.of(2026, 11, 23))), eq("getProductList"), eq(2))).thenReturn(1);
+        when(jdbc.update(anyString(), eq(LocalDate.of(2026, 11, 23)), eq("getProductList"), eq(2))).thenReturn(1);
 
         assertThat(limite().reservar("getProductList", 2)).isTrue();
         verify(jdbc).update(contains("ON CONFLICT (fecha, operacion)"),
-                eq(Date.valueOf(LocalDate.of(2026, 11, 23))), eq("getProductList"), eq(2));
+                eq(LocalDate.of(2026, 11, 23)), eq("getProductList"), eq(2));
     }
 
     @Test
     @DisplayName("Si no actualiza ninguna fila, el cupo del día ya se agotó")
     void cupoAgotado() {
-        when(jdbc.update(anyString(), eq(Date.valueOf(LocalDate.of(2026, 11, 23))), eq("getProductList"), eq(2))).thenReturn(0);
+        when(jdbc.update(anyString(), eq(LocalDate.of(2026, 11, 23)), eq("getProductList"), eq(2))).thenReturn(0);
 
         assertThat(limite().reservar("getProductList", 2)).isFalse();
     }

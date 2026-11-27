@@ -67,7 +67,7 @@ public class GlobalExceptionHandler {
 
     private static ResponseEntity<GenericResponse> responder(HttpStatusCode status, String mensaje) {
         GenericResponse genericResponse = new GenericResponse();
-        genericResponse.setCodigo(ApiResponse.ERROR);
+        genericResponse.setCodigo(ApiResponse.CODIGO_ERROR);
         genericResponse.setMensaje(mensaje);
         return new ResponseEntity<>(genericResponse, status);
     }
