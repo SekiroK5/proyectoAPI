@@ -18,6 +18,7 @@ import com.proyecto.servicios.enums.Catalogos.Sexo;
 import com.proyecto.servicios.mapper.ClienteMapper;
 import com.proyecto.servicios.repository.sf.ClienteRepository;
 import com.proyecto.servicios.repository.sf.CuentaRepository;
+import com.proyecto.servicios.seguridad.VerificacionCorreo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,6 +61,9 @@ class ClienteServiceImplTest {
     @Mock
     private CuentaRepository cuentaRepository;
 
+    @Mock
+    private VerificacionCorreo verificacionCorreo;
+
     // Costo minimo de BCrypt para que las pruebas sean rapidas
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
 
@@ -67,7 +71,7 @@ class ClienteServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        clienteService = new ClienteServiceImpl(clienteRepository, cuentaRepository, passwordEncoder, new BigDecimal("0.00"));
+        clienteService = new ClienteServiceImpl(clienteRepository, cuentaRepository, passwordEncoder, verificacionCorreo, new BigDecimal("0.00"));
     }
 
     // ======================== Datos de prueba ========================
@@ -198,7 +202,7 @@ class ClienteServiceImplTest {
     @Test
     @DisplayName("No arranca si el saldo inicial configurado es negativo")
     void saldoInicialNegativo() {
-        assertThatThrownBy(() -> new ClienteServiceImpl(clienteRepository, cuentaRepository, passwordEncoder, new BigDecimal("-1")))
+        assertThatThrownBy(() -> new ClienteServiceImpl(clienteRepository, cuentaRepository, passwordEncoder, verificacionCorreo, new BigDecimal("-1")))
                 .isInstanceOf(IllegalStateException.class);
     }
 

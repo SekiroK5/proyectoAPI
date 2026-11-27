@@ -96,7 +96,8 @@ public class RegistroTransacciones {
         }
         guardarRespuesta(tx, resultado);
         tx.setEstatus(EstatusTransaccion.PENDIENTE_CONFIRMACION);
-        log.warn("Transaccion ID={} PENDIENTE_CONFIRMACION: {}", tx.getId(), resultado.error());
+        log.warn("Transaccion ID={} PENDIENTE_CONFIRMACION: {}", tx.getId(),
+                resultado.error() != null ? resultado.error() : "GestoPago respondio codigo " + resultado.codigo());
         return transaccionRepository.save(tx);
     }
 

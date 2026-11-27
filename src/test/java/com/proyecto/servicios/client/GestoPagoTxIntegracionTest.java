@@ -54,6 +54,8 @@ import static org.mockito.Mockito.when;
         "gestopago.cifrado.llave=HPo7OLqB4Fkk4E2yGOtwqw8H5fHR9kNx67OR4g4UdlA=",
         "gestopago.cifrado.iv=p5ldmBPdd/9pjC0bDC/nSg==",
         "gestopago.api-key=API-KEY-PRUEBA",
+        // Siempre contra el cliente HTTP real, aunque el .env local active la simulacion
+        "gestopago.simulado=false",
         // Timeout corto para probar el caso sin respuesta sin esperar 70 s
         "spring.cloud.openfeign.client.config.gestoPagoTx.read-timeout=1000"
 })
@@ -77,7 +79,7 @@ class GestoPagoTxIntegracionTest {
     @EnableFeignClients(clients = GestoPagoTxClient.class)
     @ImportAutoConfiguration({FeignAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class,
             JacksonAutoConfiguration.class})
-    @Import({GestoPagoTxGateway.class, CifradoGestoPago.class, CircuitoGestoPago.class})
+    @Import({GestoPagoTxGateway.class, CifradoGestoPago.class, CircuitoGestoPago.class, SimuladorGestoPago.class})
     static class Contexto {
         @Bean
         Clock clock() {

@@ -34,14 +34,17 @@ public class GestoPagoTxGateway {
     private final Clock clock;
     private final String apiKey;
     private final JAXBContext contextoXml;
+    private final SimuladorGestoPago simulador;
 
     public GestoPagoTxGateway(GestoPagoTxClient txClient,
                               GestoPagoTokenService tokenService,
                               CifradoGestoPago cifrado,
                               CircuitoGestoPago circuito,
                               Clock clock,
+                              SimuladorGestoPago simulador,
                               @Value("${gestopago.api-key:}") String apiKey) throws JAXBException {
         this.txClient = txClient;
+        this.simulador = simulador;
         this.tokenService = tokenService;
         this.cifrado = cifrado;
         this.circuito = circuito;
@@ -100,6 +103,10 @@ public class GestoPagoTxGateway {
     private Resultado ejecutar(String metodo, String payloadJson,
                                Function<Map<String, String>, String> llamada,
                                Function<Map<String, String>, String> reintentoConTokenNuevo) {
+        if (simulador.activo()) {
+            // Modo simulacion: misma interpretacion y bitacora, pero sin llamar a PuntoRed
+            return interpretar(metodo, simulador.responder(metodo, payloadJson));
+        }
         if (!circuito.permite()) {
             // GestoPago fallo varias veces seguidas: no se insiste mientras dure la pausa
             log.warn("GestoPago {} no se envio: llamadas en pausa por fallas consecutivas", metodo);

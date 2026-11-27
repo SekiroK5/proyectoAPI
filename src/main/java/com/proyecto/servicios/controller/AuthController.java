@@ -2,6 +2,8 @@ package com.proyecto.servicios.controller;
 
 import com.proyecto.servicios.dto.request.A2fConfiguracionRequest;
 import com.proyecto.servicios.dto.request.A2fVerificacionRequest;
+import com.proyecto.servicios.dto.request.CorreoReenvioRequest;
+import com.proyecto.servicios.dto.request.CorreoVerificacionRequest;
 import com.proyecto.servicios.dto.request.LoginRequest;
 import com.proyecto.servicios.dto.response.A2fConfiguracionResponse;
 import com.proyecto.servicios.dto.response.ApiResponse;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  * Inicio de sesion en dos pasos. Flujo:
  * <ol>
  *   <li>POST /login con usuario o correo + contrasena: devuelve un token temporal y el siguiente paso.</li>
+ *   <li>Si el correo no esta confirmado: POST /correo/verificacion con el codigo enviado al correo.</li>
  *   <li>Solo la primera vez: POST /a2f/configuracion para obtener el secreto TOTP.</li>
  *   <li>POST /a2f/verificacion con el codigo de 6 digitos: devuelve el token de acceso.</li>
  * </ol>
@@ -61,6 +64,14 @@ public class AuthController {
         return ResponseEntity.ok(respuesta);
     }
 
+    @Operation(summary = "Pedir código por correo para autorizar una operación",
+            description = "Alternativa a la app autenticadora para pagos y depósitos: envía un código al correo del cliente de la sesión (uno por minuto). Respuestas: 200, 401, 403, 423, 429, 503.")
+    @PostMapping("/codigo-operacion")
+    public ResponseEntity<ApiResponse<Void>> enviarCodigoOperacion(@AuthenticationPrincipal Jwt sesion) {
+        log.info("POST /api/v1/auth/codigo-operacion");
+        return responder(authService.enviarCodigoOperacion(Integer.valueOf(sesion.getSubject())));
+    }
+
     @Operation(summary = "Iniciar sesión (paso 1)",
             description = "Valida usuario o correo + contraseña. Respuestas: 200 (con token temporal), 400, 401, 403 (cliente dado de baja), 423 (bloqueo por intentos).")
     @PostMapping(value = "/login", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -83,6 +94,38 @@ public class AuthController {
     public ResponseEntity<ApiResponse<TokenResponse>> verificarA2F(@Valid @RequestBody A2fVerificacionRequest request) {
         log.info("POST /api/v1/auth/a2f/verificacion");
         return responder(authService.verificarA2F(request));
+    }
+
+    @Operation(summary = "Confirmar correo",
+            description = "Valida el código de 6 dígitos enviado al correo y devuelve el siguiente paso (segundo factor). Respuestas: 200, 400, 401 (código incorrecto), 403, 410 (código vencido), 423, 429 (sin intentos).")
+    @PostMapping(value = "/correo/verificacion", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<LoginResponse>> verificarCorreo(@Valid @RequestBody CorreoVerificacionRequest request) {
+        log.info("POST /api/v1/auth/correo/verificacion");
+        return responder(authService.verificarCorreo(request));
+    }
+
+    @Operation(summary = "Reenviar código del correo",
+            description = "Envía un código nuevo al correo (uno por minuto). Respuestas: 200, 400, 401, 403, 409 (ya confirmado), 423, 429, 503 (no se pudo enviar).")
+    @PostMapping(value = "/correo/reenvio", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<LoginResponse>> reenviarCorreo(@Valid @RequestBody CorreoReenvioRequest request) {
+        log.info("POST /api/v1/auth/correo/reenvio");
+        return responder(authService.reenviarCodigoCorreo(request));
+    }
+
+    @Operation(summary = "Recibir código de inicio de sesión por correo",
+            description = "Alternativa a la app autenticadora: envía un código al correo (uno por minuto). Respuestas: 200, 400, 401, 403, 423, 429, 503.")
+    @PostMapping(value = "/a2f/correo/envio", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<LoginResponse>> enviarCodigoInicioSesion(@Valid @RequestBody CorreoReenvioRequest request) {
+        log.info("POST /api/v1/auth/a2f/correo/envio");
+        return responder(authService.enviarCodigoInicioSesion(request));
+    }
+
+    @Operation(summary = "Iniciar sesión con el código del correo (paso 2)",
+            description = "Valida el código enviado al correo y devuelve el token de acceso. Respuestas: 200, 400, 401, 403, 410 (vencido), 423, 429.")
+    @PostMapping(value = "/a2f/correo/verificacion", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<TokenResponse>> verificarCodigoInicioSesion(@Valid @RequestBody CorreoVerificacionRequest request) {
+        log.info("POST /api/v1/auth/a2f/correo/verificacion");
+        return responder(authService.verificarCodigoInicioSesion(request));
     }
 
     private static <T> ResponseEntity<ApiResponse<T>> responder(ApiResponse<T> respuesta) {

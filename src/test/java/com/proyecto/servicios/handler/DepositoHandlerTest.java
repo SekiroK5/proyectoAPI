@@ -12,7 +12,9 @@ import com.proyecto.servicios.repository.sf.ClienteRepository;
 import com.proyecto.servicios.repository.sf.CuentaRepository;
 import com.proyecto.servicios.seguridad.IntentosFallidos;
 import com.proyecto.servicios.seguridad.Totp;
+import com.proyecto.servicios.seguridad.EnvioCorreo;
 import com.proyecto.servicios.seguridad.ValidadorA2F;
+import com.proyecto.servicios.seguridad.VerificacionCorreo;
 import com.proyecto.servicios.service.impl.RegistroDepositos;
 import org.apache.commons.codec.binary.Base32;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -58,7 +61,8 @@ class DepositoHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new DepositoHandler(cuentaRepository,
-                new ValidadorA2F(totp, new IntentosFallidos(clienteRepository, RELOJ, 5, 15), clienteRepository),
+                new ValidadorA2F(totp, new IntentosFallidos(clienteRepository, RELOJ, 5, 15), clienteRepository,
+                        new VerificacionCorreo(mock(EnvioCorreo.class), RELOJ)),
                 registro, new BigDecimal("50000.00"));
 
         cliente = new Cliente();

@@ -56,6 +56,16 @@ public interface ClienteRepository extends JpaRepository<Cliente, Integer>, JpaS
     int marcarPasoA2F(@Param("id") Integer id, @Param("paso") long paso);
 
     /**
+     * Consume un codigo de correo de forma atomica: solo una peticion simultanea lo logra (devuelve 1),
+     * asi el mismo codigo no autoriza dos operaciones.
+     */
+    @Modifying
+    @Transactional("sfTransactionManager")
+    @Query("update Cliente c set c.correoCodigoHash = null, c.correoCodigoExpira = null, c.correoCodigoProposito = null, "
+            + "c.correoIntentos = 0 where c.id = :id and c.correoCodigoHash = :hash")
+    int consumirCodigoCorreo(@Param("id") Integer id, @Param("hash") String hash);
+
+    /**
      * Busqueda dinamica paginada; carga domicilio y cuenta en la misma consulta para evitar N+1.
      */
     @Override

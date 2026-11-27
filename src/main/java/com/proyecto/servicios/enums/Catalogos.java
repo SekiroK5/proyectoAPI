@@ -60,11 +60,25 @@ public final class Catalogos {
         TOTP
     }
 
+    /** Para que sirve un codigo enviado por correo: cada uno solo vale para su proposito. */
+    public enum PropositoCodigo {
+        /** Confirmar que el correo es del cliente (al registrarse). */
+        CONFIRMAR_CORREO,
+        /** Segundo factor del inicio de sesion, en lugar de la app autenticadora. */
+        INICIO_SESION,
+        /** Autorizar un pago o un deposito, en lugar de la app autenticadora. */
+        OPERACION
+    }
+
     /** Lo que debe hacer el cliente despues de validar su contrasena. */
     public enum PasoLogin {
+        /** Su correo aun no esta confirmado: debe enviar el codigo que se le mando por correo. */
+        VERIFICAR_CORREO,
         /** Aun no tiene segundo factor: debe pedir su secreto y confirmar un primer codigo. */
         CONFIGURAR_A2F,
         /** Ya tiene segundo factor: debe enviar el codigo de su app autenticadora. */
-        VERIFICAR_A2F
+        VERIFICAR_A2F,
+        /** Eligio recibir el codigo del inicio de sesion por correo: debe enviar ese codigo. */
+        VERIFICAR_CODIGO_CORREO
     }
 }

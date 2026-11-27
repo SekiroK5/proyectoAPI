@@ -92,6 +92,7 @@ class ProductoServiceImplTest {
         token.setToken("token-de-prueba-123");
         lenient().when(tokenRepository.findByIdDistribuidorAndCodigoDispositivo(anyInt(), anyString()))
                 .thenReturn(Optional.of(token));
+        lenient().when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("token-de-prueba-123"));
         lenient().when(limite.reservar(ProductoServiceImpl.OPERACION, 2)).thenReturn(true);
     }
 
@@ -164,9 +165,9 @@ class ProductoServiceImplTest {
     }
 
     @Test
-    @DisplayName("Sin token en BD y sin poder renovarlo: lanza excepción y no guarda nada")
+    @DisplayName("Sin token vigente y sin poder renovarlo: lanza excepción y no guarda nada")
     void actualizar_sinToken() {
-        when(tokenRepository.findByIdDistribuidorAndCodigoDispositivo(anyInt(), anyString())).thenReturn(Optional.empty());
+        when(tokenService.obtenerTokenVigente()).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> productoService.actualizarProductosDesdeApi()).isInstanceOf(ResponseStatusException.class);
         verify(productoClient, never()).getProductList(anyString());

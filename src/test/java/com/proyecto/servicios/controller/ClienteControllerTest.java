@@ -10,6 +10,7 @@ import com.proyecto.servicios.exception.GlobalExceptionHandler;
 import com.proyecto.servicios.service.ClienteService;
 import com.proyecto.servicios.handler.DepositoHandler;
 import com.proyecto.servicios.service.CuentaService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -31,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -79,7 +85,16 @@ class ClienteControllerTest {
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new ClienteController(clienteService), new CuentaController(cuentaService, depositoHandler))
                 .setControllerAdvice(new GlobalExceptionHandler())
+                // Resuelve @AuthenticationPrincipal Jwt igual que con Spring Security
+                .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .build();
+        Jwt jwt = Jwt.withTokenValue("token").header("alg", "HS256").subject("1").build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
+    }
+
+    @AfterEach
+    void limpiarSesion() {
+        SecurityContextHolder.clearContext();
     }
 
     private static ClienteResponse cliente() {
@@ -285,7 +300,7 @@ class ClienteControllerTest {
     @Test
     @DisplayName("POST /cuentas/consulta inexistente -> 404 con codigo 1")
     void cuenta_404() throws Exception {
-        when(cuentaService.consultar(any()))
+        when(cuentaService.consultar(eq(1), any()))
                 .thenReturn(ApiResponse.<CuentaResponse>error(HttpStatus.NOT_FOUND, "No existe una cuenta con el número 0000000000000000."));
 
         mockMvc.perform(post("/api/v1/cuentas/consulta").contentType(MediaType.APPLICATION_JSON)

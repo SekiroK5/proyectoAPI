@@ -138,22 +138,16 @@ public class ProductoServiceImpl implements ProductoService {
 
     // ─── Metodos privados ────────────────────────────────────────────────────
 
+    /**
+     * Token vigente para getProductList. Si el guardado ya vencio se renueva antes de llamar: usar un token
+     * vencido solo provoca un 401/403 y gasta una de las pocas llamadas diarias al catalogo.
+     */
     private String obtenerTokenActivo() {
-        Optional<GestoPagoToken> tokenOpt =
-                tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
-
-        if (tokenOpt.isEmpty()) {
-            log.warn("No se encontro token en BD. Se intenta una renovacion contra PuntoRed...");
-            tokenService.renovarToken();
-            tokenOpt = tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
-        }
-
-        if (tokenOpt.isEmpty()) {
-            log.error("No se pudo obtener token activo en BD tras intento de renovacion para distribuidor={}", idDistribuidor);
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+        return tokenService.obtenerTokenVigente().orElseThrow(() -> {
+            log.error("No se pudo obtener token vigente de PuntoRed para distribuidor={}", idDistribuidor);
+            return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "No hay token activo disponible. Verifique la conexion y credenciales de PuntoRed.");
-        }
-        return tokenOpt.get().getToken();
+        });
     }
 
     private String llamarApi(String token) {

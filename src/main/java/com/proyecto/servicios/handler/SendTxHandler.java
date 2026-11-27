@@ -198,10 +198,10 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         Resultado resultado = gateway.enviar(tx.getPayloadEnviado());
 
         // ── 7. Respuesta ──
-        return responder(tx, resultado);
+        return responder(tx, resultado, producto.get());
     }
 
-    private ApiResponse<TransaccionResponse> responder(Transaccion tx, Resultado resultado) {
+    private ApiResponse<TransaccionResponse> responder(Transaccion tx, Resultado resultado, ProductoDto producto) {
         if (!resultado.enviada()) {
             registro.rechazar(tx.getId(), resultado);
             return ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE,
@@ -209,11 +209,11 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         }
         if (!resultado.tieneRespuesta() || CODIGO_TIMEOUT.equals(resultado.codigo())) {
             Transaccion porConfirmar = registro.marcarPorConfirmar(tx.getId(), resultado);
-            return ApiResponse.exito(HttpStatus.ACCEPTED, MSG_POR_CONFIRMAR, TransaccionMapper.aResponse(porConfirmar));
+            return ApiResponse.exito(HttpStatus.ACCEPTED, MSG_POR_CONFIRMAR, conProducto(TransaccionMapper.aResponse(porConfirmar), producto));
         }
         if (CODIGO_EXITO.equals(resultado.codigo())) {
             Transaccion aplicada = registro.aplicar(tx.getId(), resultado);
-            return ApiResponse.exito(HttpStatus.OK, MSG_PAGO_EXITOSO, TransaccionMapper.aResponse(aplicada));
+            return ApiResponse.exito(HttpStatus.OK, MSG_PAGO_EXITOSO, conProducto(TransaccionMapper.aResponse(aplicada), producto));
         }
         Transaccion rechazada = registro.rechazar(tx.getId(), resultado);
         // El texto original de GestoPago queda en la bitacora; al cliente se le responde con un mensaje propio
@@ -262,6 +262,15 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         }
         return ApiResponse.error(HttpStatus.UNPROCESSABLE_ENTITY,
                 "El tipo de producto (tipoFront " + tipoFront + ") no se puede pagar con este servicio.");
+    }
+
+    /** Nombre, categoria y logotipo del servicio para mostrar el resultado igual que en el historial. */
+    private static TransaccionResponse conProducto(TransaccionResponse res, ProductoDto producto) {
+        res.setServicio(producto.getServicio());
+        res.setProducto(producto.getProducto());
+        res.setCategoria(producto.getCategoria());
+        res.setLogoUrl(producto.getLogoUrl());
+        return res;
     }
 
     private static boolean esPagoDeServicio(ProductoDto producto) {

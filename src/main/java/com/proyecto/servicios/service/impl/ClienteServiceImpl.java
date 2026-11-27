@@ -15,6 +15,7 @@ import com.proyecto.servicios.enums.Catalogos.EstatusCuenta;
 import com.proyecto.servicios.mapper.ClienteMapper;
 import com.proyecto.servicios.repository.sf.ClienteRepository;
 import com.proyecto.servicios.repository.sf.CuentaRepository;
+import com.proyecto.servicios.seguridad.VerificacionCorreo;
 import com.proyecto.servicios.service.ClienteService;
 import com.proyecto.servicios.specification.ClienteSpecification;
 import lombok.extern.slf4j.Slf4j;
@@ -46,12 +47,14 @@ public class ClienteServiceImpl implements ClienteService {
     private final ClienteRepository clienteRepository;
     private final CuentaRepository cuentaRepository;
     private final PasswordEncoder passwordEncoder;
+    private final VerificacionCorreo verificacionCorreo;
     private final BigDecimal saldoInicial;
     private final SecureRandom random = new SecureRandom();
 
     public ClienteServiceImpl(ClienteRepository clienteRepository,
                               CuentaRepository cuentaRepository,
                               PasswordEncoder passwordEncoder,
+                              VerificacionCorreo verificacionCorreo,
                               @Value("${onboarding.cuenta.saldo-inicial:0.00}") BigDecimal saldoInicial) {
         // Regla: el saldo inicial lo define el sistema y no puede ser negativo
         if (saldoInicial == null || saldoInicial.signum() < 0) {
@@ -60,6 +63,7 @@ public class ClienteServiceImpl implements ClienteService {
         this.clienteRepository = clienteRepository;
         this.cuentaRepository = cuentaRepository;
         this.passwordEncoder = passwordEncoder;
+        this.verificacionCorreo = verificacionCorreo;
         this.saldoInicial = saldoInicial.setScale(2, RoundingMode.HALF_UP);
     }
 
@@ -76,6 +80,8 @@ public class ClienteServiceImpl implements ClienteService {
         Cliente cliente = ClienteMapper.aEntidad(request);
         cliente.setActivo(true);
         cliente.setContrasenaHash(passwordEncoder.encode(request.getContrasena()));
+        // El correo se confirma con un codigo; si el envio falla se puede pedir otro al iniciar sesion
+        boolean correoEnviado = verificacionCorreo.iniciar(cliente);
         Cliente guardado = clienteRepository.save(cliente);
 
         Cuenta cuenta = new Cuenta();
@@ -86,7 +92,10 @@ public class ClienteServiceImpl implements ClienteService {
         guardado.setCuenta(cuentaRepository.save(cuenta));
 
         log.info("Cliente registrado ID={}, cuenta={}", guardado.getId(), cuenta.getNumeroCuenta());
-        return ApiResponse.exito(HttpStatus.CREATED, "Cliente registrado correctamente.", ClienteMapper.aResponse(guardado));
+        String mensaje = correoEnviado
+                ? "Cliente registrado correctamente. Le enviamos un código a su correo para confirmarlo al iniciar sesión."
+                : "Cliente registrado correctamente. No pudimos enviar el código a su correo; al iniciar sesión puede pedir otro.";
+        return ApiResponse.exito(HttpStatus.CREATED, mensaje, ClienteMapper.aResponse(guardado));
     }
 
     @Override

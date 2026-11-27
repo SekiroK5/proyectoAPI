@@ -66,7 +66,7 @@ class GestoPagoTxGatewayTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        gateway = new GestoPagoTxGateway(txClient, tokenService, cifrado, circuito, RELOJ, "");
+        gateway = new GestoPagoTxGateway(txClient, tokenService, cifrado, circuito, RELOJ, new SimuladorGestoPago(false, RELOJ), "");
     }
 
     private static FeignException error(int status) {
@@ -134,7 +134,7 @@ class GestoPagoTxGatewayTest {
     @DisplayName("Sin llave/IV de cifrado no envía nada (enviada = false)")
     void enviar_sinCifrado() throws Exception {
         GestoPagoTxGateway sinLlaves = new GestoPagoTxGateway(txClient, tokenService, new CifradoGestoPago("", ""),
-                circuito, Clock.systemUTC(), "");
+                circuito, Clock.systemUTC(), new SimuladorGestoPago(false, Clock.systemUTC()), "");
 
         Resultado res = sinLlaves.enviar(PAYLOAD);
 
@@ -241,5 +241,30 @@ class GestoPagoTxGatewayTest {
             assertThat(gateway.enviar(PAYLOAD).codigo()).isEqualTo("02");
         }
         assertThat(circuito.permite()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Modo simulación: responde sin llamar a GestoPago y con el mismo formato XML")
+    void simulacion_noLlamaAGestoPago() throws Exception {
+        GestoPagoTxGateway simulado = new GestoPagoTxGateway(txClient, tokenService, cifrado, circuito, RELOJ,
+                new SimuladorGestoPago(true, RELOJ), "");
+
+        Resultado exito = simulado.enviar("{\"telefono\":\"5512345678\",\"upc\":\"ABC\"}");
+        Resultado rechazo = simulado.enviar("{\"telefono\":\"5512345670\"}");
+        Resultado pendiente = simulado.enviar("{\"telefono\":\"1111111111\",\"referencia\":\"REF9\",\"montoPago\":601.99}");
+        Resultado confirmada = simulado.confirmar("{}");
+        Resultado valida = simulado.verificarReferencia("{\"referencia\":\"ABC123\"}");
+        Resultado invalida = simulado.verificarReferencia("{\"referencia\":\"ABC120\"}");
+
+        assertThat(exito.codigo()).isEqualTo("01");
+        assertThat(exito.xml().getNumAutorizacion()).isNotBlank();
+        assertThat(rechazo.codigo()).isEqualTo("70");
+        assertThat(pendiente.codigo()).isEqualTo("82");
+        assertThat(confirmada.codigo()).isEqualTo("06");
+        assertThat(valida.codigo()).isEqualTo("01");
+        assertThat(valida.xml().getMensaje().getSaldo()).isNotBlank();
+        assertThat(invalida.codigo()).isEqualTo("02");
+        verify(txClient, never()).sendTx(any(), any(), anyMap());
+        verify(tokenService, never()).obtenerTokenVigente();
     }
 }

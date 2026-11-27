@@ -23,7 +23,9 @@ import com.proyecto.servicios.enums.Catalogos.ResultadoVerificacion;
 import java.time.LocalDateTime;
 import com.proyecto.servicios.seguridad.IntentosFallidos;
 import com.proyecto.servicios.seguridad.Totp;
+import com.proyecto.servicios.seguridad.EnvioCorreo;
 import com.proyecto.servicios.seguridad.ValidadorA2F;
+import com.proyecto.servicios.seguridad.VerificacionCorreo;
 import com.proyecto.servicios.service.ProductoService;
 import com.proyecto.servicios.service.impl.RegistroTransacciones;
 import org.apache.commons.codec.binary.Base32;
@@ -48,6 +50,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -78,7 +81,8 @@ class SendTxHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new SendTxHandler(cuentaRepository, transaccionRepository, productoService,
-                new ValidadorA2F(totp, new IntentosFallidos(clienteRepository, RELOJ, 5, 15), clienteRepository), registro, gateway,
+                new ValidadorA2F(totp, new IntentosFallidos(clienteRepository, RELOJ, 5, 15), clienteRepository,
+                        new VerificacionCorreo(mock(EnvioCorreo.class), RELOJ)), registro, gateway,
                 new ObjectMapper(), verificacionRepository, RELOJ, "083", "America/Mexico_City");
 
         cliente = new Cliente();
@@ -128,6 +132,9 @@ class SendTxHandlerTest {
         p.setTipoFront(tipoFront);
         p.setIdCatTipoServicio(idCatTipoServicio);
         p.setPrecio(precio);
+        p.setServicio("Servicio " + idServicio);
+        p.setProducto("Producto " + idProducto);
+        p.setLogoUrl("https://logos/" + idServicio + ".png");
         return p;
     }
 
@@ -345,6 +352,9 @@ class SendTxHandlerTest {
         assertThat(res.getMensaje()).isEqualTo(SendTxHandler.MSG_PAGO_EXITOSO);
         assertThat(res.getDatos().getEstatus()).isEqualTo(EstatusTransaccion.APLICADA);
         assertThat(res.getDatos().getNumAutorizacion()).isEqualTo("100024988");
+        // El resultado muestra el servicio igual que el historial
+        assertThat(res.getDatos().getServicio()).isEqualTo("Servicio 133");
+        assertThat(res.getDatos().getLogoUrl()).isEqualTo("https://logos/133.png");
         verify(registro).aplicar(eq(99), any());
 
         String payload = payloadEnviado();
