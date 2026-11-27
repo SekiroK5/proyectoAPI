@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { SubmitEvent } from 'react'
 import { mensajeDeError } from '../api/cliente'
 import { cuentas } from '../api/servicios'
 import type { Cuenta as DatosCuenta } from '../api/tipos'
@@ -37,10 +37,10 @@ export function Cuenta() {
     }
   }
 
-  async function depositar(e: FormEvent) {
+  async function depositar(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
     setAviso(null)
-    if (!/^\d{1,10}(\.\d{1,2})?$/.test(monto) || !(Number(monto) > 0)) {
+    if (!/^\d{1,10}(\.\d{1,2})?$/.test(monto) || Number(monto) <= 0) {
       setAviso({ tipo: 'error', texto: 'Escriba un monto válido mayor a cero (máximo 2 decimales).' })
       return
     }
@@ -92,17 +92,18 @@ export function Cuenta() {
           <input inputMode="decimal" value={monto} placeholder="0.00"
             onChange={(e) => setMonto(e.target.value.replace(/[^\d.]/g, '').slice(0, 13))} required />
         </label>
-        <div className="montos-rapidos" role="group" aria-label="Montos rápidos">
+        <fieldset className="montos-rapidos">
+          <legend className="oculto-visual">Montos rápidos</legend>
           {MONTOS_RAPIDOS.map((m) => (
             <button key={m} type="button" className={`chip ${Number(monto) === m ? 'activo' : ''}`} onClick={() => setMonto(String(m))}>
               {dinero(m)}
             </button>
           ))}
-        </div>
+        </fieldset>
         <CampoCodigo etiqueta="Código de autorización (app o correo)" valor={codigo} alCambiar={setCodigo} disabled={enviando} />
         <CodigoPorCorreo disabled={enviando} />
         {aviso && <Aviso tipo={aviso.tipo}>{aviso.texto}</Aviso>}
-        <button className="boton" disabled={enviando || codigo.length !== 6 || !monto}>
+        <button type="submit" className="boton" disabled={enviando || codigo.length !== 6 || !monto}>
           <Icono nombre="mas" tamanio={18} />
           {enviando ? 'Depositando…' : 'Depositar'}
         </button>

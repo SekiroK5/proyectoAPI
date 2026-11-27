@@ -20,5 +20,7 @@ subprojects {
 }
 
 tasks.register<Delete>("clean") {
+    group = "build"
+    description = "Borra la carpeta de compilación del proyecto."
     delete(rootProject.layout.buildDirectory)
 }

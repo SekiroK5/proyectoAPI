@@ -16,6 +16,13 @@ const FILTROS: { valor: EstatusTransaccion | ''; texto: string }[] = [
   { valor: 'REVISION_MANUAL', texto: 'En revisión' },
 ]
 
+/** Referencia, teléfono o producto que identifica la operación en la lista. */
+function detalleFila(tx: Transaccion): string | undefined {
+  if (tx.referencia) return `Ref. ${tx.referencia}`
+  if (tx.telefono && !tx.telefono.includes('1111111111')) return `Tel. ${tx.telefono}`
+  return tx.producto
+}
+
 /** Historial de pagos del usuario de la sesión (la API solo devuelve sus operaciones). */
 export function Historial() {
   const [pagina, setPagina] = useState(0)
@@ -42,23 +49,24 @@ export function Historial() {
           <p className="tenue">{datos ? `${datos.totalElementos} operación(es)` : 'Sus recargas y pagos de servicios.'}</p>
         </div>
       </div>
-      <div className="chips" role="group" aria-label="Filtrar por estatus" style={{ marginBottom: '1.25rem' }}>
+      <fieldset className="chips" style={{ marginBottom: '1.25rem' }}>
+        <legend className="oculto-visual">Filtrar por estatus</legend>
         {FILTROS.map((f) => (
           <button key={f.valor || 'todos'} type="button" className={`chip ${estatus === f.valor ? 'activo' : ''}`}
             aria-pressed={estatus === f.valor} onClick={() => { setPagina(0); setEstatus(f.valor) }}>
             {f.texto}
           </button>
         ))}
-      </div>
+      </fieldset>
       {error && <Aviso tipo="error">{error}</Aviso>}
       {!error && !datos && <Cargando texto="Cargando historial…" />}
-      {datos && datos.contenido.length === 0 && (
+      {datos?.contenido.length === 0 && (
         <Vacio icono="recibo" titulo={estatus ? 'Sin pagos con ese estatus' : 'Aún no tiene pagos'}
           accion={<Link className="boton" to="/catalogo">Ir al catálogo</Link>}>
           {estatus ? 'Pruebe con otro filtro.' : 'Cuando haga una recarga o pague un servicio aparecerá aquí.'}
         </Vacio>
       )}
-      {datos && datos.contenido.length > 0 && (
+      {!!datos?.contenido.length && (
         <>
           <ul className="lista-historial">
             {datos.contenido.map((tx) => (
@@ -69,7 +77,7 @@ export function Historial() {
                     <strong>{tx.servicio ?? `Servicio ${tx.idServicio}`}</strong>
                     <span className="tenue chico">{fecha(tx.fecha)}</span>
                     <span className="tenue chico">
-                      {tx.referencia ? `Ref. ${tx.referencia}` : tx.telefono && !tx.telefono.includes('1111111111') ? `Tel. ${tx.telefono}` : tx.producto}
+                      {detalleFila(tx)}
                     </span>
                   </div>
                   <div className="fila-lateral">

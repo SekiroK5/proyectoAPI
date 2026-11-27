@@ -2,7 +2,7 @@ import type { Transaccion } from '../api/tipos'
 import { Estatus, Logo, agruparCuenta, dinero, fecha } from './Comunes'
 
 /** Datos de una transacción: se usa en el resultado del pago y en el detalle del historial. */
-export function DetalleTransaccion({ tx, leyenda }: { tx: Transaccion; leyenda?: string }) {
+export function DetalleTransaccion({ tx, leyenda }: Readonly<{ tx: Transaccion; leyenda?: string }>) {
   const folio = tx.numAutorizacion && tx.numAutorizacion !== '-1' && tx.numAutorizacion !== '0' ? tx.numAutorizacion : null
   return (
     <div className="detalle-tx">

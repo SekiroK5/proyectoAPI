@@ -7,7 +7,7 @@ import { Icono } from './Iconos'
 import type { NombreIcono } from './Iconos'
 
 /** Logotipo del proveedor; si la imagen de GestoPago no existe, muestra las iniciales del servicio. */
-export function Logo({ url, nombre, tamanio = 56 }: { url?: string; nombre?: string; tamanio?: number }) {
+export function Logo({ url, nombre, tamanio = 56 }: Readonly<{ url?: string; nombre?: string; tamanio?: number }>) {
   const [fallo, setFallo] = useState(false)
   const iniciales = (nombre ?? '?')
     .replace(/[^\p{L}\p{N}\s]/gu, '')
@@ -45,7 +45,7 @@ const ESTATUS: Record<EstatusTransaccion, { texto: string; clase: string }> = {
   REVISION_MANUAL: { texto: 'En revisión', clase: 'pendiente' },
 }
 
-export function Estatus({ estatus }: { estatus: EstatusTransaccion }) {
+export function Estatus({ estatus }: Readonly<{ estatus: EstatusTransaccion }>) {
   const e = ESTATUS[estatus] ?? { texto: estatus, clase: 'pendiente' }
   return <span className={`insignia ${e.clase}`}>{e.texto}</span>
 }
@@ -53,26 +53,30 @@ export function Estatus({ estatus }: { estatus: EstatusTransaccion }) {
 type TipoAviso = 'error' | 'exito' | 'info' | 'pendiente'
 const ICONO_AVISO: Record<TipoAviso, NombreIcono> = { error: 'alerta', exito: 'check', info: 'info', pendiente: 'reloj' }
 
-export function Aviso({ tipo, children }: { tipo: TipoAviso; children: ReactNode }) {
-  return (
-    <div className={`aviso ${tipo}`} role={tipo === 'error' ? 'alert' : 'status'}>
+export function Aviso({ tipo, children }: Readonly<{ tipo: TipoAviso; children: ReactNode }>) {
+  const contenido = (
+    <>
       <Icono nombre={ICONO_AVISO[tipo]} tamanio={18} />
       <div>{children}</div>
-    </div>
+    </>
   )
+  // Los errores se anuncian de inmediato; los demás avisos son un resultado (<output> = rol status)
+  return tipo === 'error'
+    ? <div className="aviso error" role="alert">{contenido}</div>
+    : <output className={`aviso ${tipo}`}>{contenido}</output>
 }
 
-export function Cargando({ texto = 'Cargando…' }: { texto?: string }) {
+export function Cargando({ texto = 'Cargando…' }: Readonly<{ texto?: string }>) {
   return (
-    <div className="cargando" role="status">
+    <output className="cargando">
       <span className="giro" aria-hidden="true" />
       {texto}
-    </div>
+    </output>
   )
 }
 
 /** Estado vacío con ícono, título, texto y una acción opcional. */
-export function Vacio({ icono, titulo, children, accion }: { icono: NombreIcono; titulo: string; children?: ReactNode; accion?: ReactNode }) {
+export function Vacio({ icono, titulo, children, accion }: Readonly<{ icono: NombreIcono; titulo: string; children?: ReactNode; accion?: ReactNode }>) {
   return (
     <div className="vacio">
       <span className="vacio-icono"><Icono nombre={icono} tamanio={30} /></span>
@@ -84,11 +88,16 @@ export function Vacio({ icono, titulo, children, accion }: { icono: NombreIcono;
 }
 
 /** Barra de pasos de un flujo (pago, inicio de sesión, registro). */
-export function Pasos({ pasos, actual }: { pasos: string[]; actual: number }) {
+function clasePaso(indice: number, actual: number): string {
+  if (indice < actual) return 'hecho'
+  return indice === actual ? 'actual' : ''
+}
+
+export function Pasos({ pasos, actual }: Readonly<{ pasos: string[]; actual: number }>) {
   return (
     <ol className="pasos" aria-label={`Paso ${actual + 1} de ${pasos.length}`}>
       {pasos.map((p, i) => (
-        <li key={p} className={i < actual ? 'hecho' : i === actual ? 'actual' : ''} aria-current={i === actual ? 'step' : undefined}>
+        <li key={p} className={clasePaso(i, actual)} aria-current={i === actual ? 'step' : undefined}>
           {p}
         </li>
       ))}
@@ -102,14 +111,12 @@ export function CampoCodigo({
   alCambiar,
   disabled,
   etiqueta = 'Código de su app autenticadora',
-  autoFocus,
-}: {
+}: Readonly<{
   valor: string
   alCambiar: (v: string) => void
   disabled?: boolean
   etiqueta?: string
-  autoFocus?: boolean
-}) {
+}>) {
   return (
     <label className="campo">
       <span>{etiqueta}</span>
@@ -121,7 +128,6 @@ export function CampoCodigo({
         placeholder="000000"
         value={valor}
         disabled={disabled}
-        autoFocus={autoFocus}
         onChange={(e) => alCambiar(e.target.value.replace(/\D/g, '').slice(0, 6))}
         required
       />
@@ -133,7 +139,7 @@ export function CampoCodigo({
  * Alternativa a la app autenticadora para pagos y depósitos: pide un código al correo del cliente.
  * El código que llega se escribe en el mismo campo.
  */
-export function CodigoPorCorreo({ disabled }: { disabled?: boolean }) {
+export function CodigoPorCorreo({ disabled }: Readonly<{ disabled?: boolean }>) {
   const [espera, setEspera] = useState(0)
   const [estado, setEstado] = useState<{ tipo: 'exito' | 'error'; texto: string } | null>(null)
   const [enviando, setEnviando] = useState(false)
@@ -158,10 +164,14 @@ export function CodigoPorCorreo({ disabled }: { disabled?: boolean }) {
     }
   }
 
+  let texto = '¿No tiene la app? Enviarme el código por correo'
+  if (espera > 0) texto = `¿No llegó? Reenviar en ${espera} s`
+  else if (enviando) texto = 'Enviando código…'
+
   return (
     <>
       <button type="button" className="enlace-boton" onClick={() => void pedir()} disabled={disabled || enviando || espera > 0}>
-        {espera > 0 ? `¿No llegó? Reenviar en ${espera} s` : enviando ? 'Enviando código…' : '¿No tiene la app? Enviarme el código por correo'}
+        {texto}
       </button>
       {estado && <Aviso tipo={estado.tipo}>{estado.texto}</Aviso>}
     </>
@@ -175,7 +185,7 @@ export function CampoContrasena({
   alCambiar,
   error,
   ...props
-}: { etiqueta: string; valor: string; alCambiar: (v: string) => void; error?: string | null } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+}: Readonly<{ etiqueta: string; valor: string; alCambiar: (v: string) => void; error?: string | null } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>>) {
   const [visible, setVisible] = useState(false)
   return (
     <label className="campo">

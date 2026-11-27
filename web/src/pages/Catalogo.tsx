@@ -15,6 +15,12 @@ const TIPOS: { valor: Filtro; texto: string }[] = [
   { valor: 'PAGO_SERVICIO', texto: 'Pago de servicios' },
 ]
 
+/** Etiqueta del tipo de producto en la tarjeta del catálogo. */
+function etiquetaTipo(p: Producto): string {
+  if (p.tipoOperacion === 'RECARGA') return 'Recarga'
+  return p.verificableEnGestoPago ? 'Servicio verificable' : 'Servicio'
+}
+
 /** Quita acentos para que "telefonica" encuentre "Telefónica". */
 const normalizar = (t: string) => t.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 
@@ -83,17 +89,19 @@ export function Catalogo() {
               maxLength={80}
             />
           </label>
-          <div className="chips" role="group" aria-label="Tipo de operación">
+          <fieldset className="chips">
+            <legend className="oculto-visual">Tipo de operación</legend>
             {TIPOS.map((t) => (
               <button key={t.valor} type="button" className={`chip ${tipo === t.valor ? 'activo' : ''}`}
                 aria-pressed={tipo === t.valor} onClick={() => { setTipo(t.valor); setCategoria('') }}>
                 {t.texto}
               </button>
             ))}
-          </div>
+          </fieldset>
         </div>
         {categorias.length > 1 && (
-          <div className="chips" role="group" aria-label="Categoría">
+          <fieldset className="chips">
+            <legend className="oculto-visual">Categoría</legend>
             <button type="button" className={`chip ${!categoria ? 'activo' : ''}`} aria-pressed={!categoria} onClick={() => setCategoria('')}>
               Todas
             </button>
@@ -102,7 +110,7 @@ export function Catalogo() {
                 {c} <span className="conteo">{n}</span>
               </button>
             ))}
-          </div>
+          </fieldset>
         )}
       </div>
 
@@ -119,13 +127,13 @@ export function Catalogo() {
         </div>
       )}
 
-      {productos && productos.length === 0 && (
+      {productos?.length === 0 && (
         <Vacio icono="tienda" titulo="Catálogo sin productos">
           La API todavía no tiene el catálogo de GestoPago. Se actualiza una vez al día.
         </Vacio>
       )}
 
-      {productos && productos.length > 0 && visibles.length === 0 && (
+      {!!productos?.length && visibles.length === 0 && (
         <Vacio icono="buscar" titulo="Sin resultados"
           accion={<button type="button" className="boton secundario" onClick={() => { setBusqueda(''); setCategoria(''); setTipo('TODOS') }}>Limpiar filtros</button>}>
           No encontramos productos con esos filtros.
@@ -143,7 +151,7 @@ export function Catalogo() {
             </div>
             <div className="producto-pie">
               <span className={`insignia sin-punto ${p.tipoOperacion === 'RECARGA' ? 'info' : 'neutra'}`}>
-                {p.tipoOperacion === 'RECARGA' ? 'Recarga' : p.verificableEnGestoPago ? 'Servicio verificable' : 'Servicio'}
+                {etiquetaTipo(p)}
               </span>
               {p.tipoOperacion === 'RECARGA' ? <span className="precio">{dinero(p.precio)}</span> : <span className="tenue chico">Monto libre</span>}
             </div>

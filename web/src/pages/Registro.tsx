@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ChangeEvent, FormEvent, ReactNode } from 'react'
+import type { ChangeEvent, ReactNode, SubmitEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError, mensajeDeError } from '../api/cliente'
 import { auth } from '../api/servicios'
@@ -20,7 +20,18 @@ type Campo = keyof Formulario
 type Errores = Partial<Record<Campo, string>>
 
 const NOMBRE = /^(?=.{2,50}$)\p{L}+( \p{L}+)*$/u
-const CURP = /^[A-Z][AEIOUX][A-Z]{2}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[HMX](AS|BC|BS|CC|CL|CM|CS|CH|DF|DG|GT|GR|HG|JC|MC|MN|MS|NT|NL|OC|PL|QT|QR|SP|SL|SR|TC|TS|TL|VZ|YN|ZS|NE)[B-DF-HJ-NP-TV-Z]{3}[0-9A-Z]\d$/
+/** Estructura de la CURP: 4 letras, fecha, sexo, entidad, 3 consonantes, homoclave y dígito. */
+const CURP_FORMA = /^[A-Z][AEIOUX][A-Z]{2}\d{6}[HMX][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[0-9A-Z]\d$/
+const ENTIDADES_CURP = new Set(['AS', 'BC', 'BS', 'CC', 'CL', 'CM', 'CS', 'CH', 'DF', 'DG', 'GT', 'GR', 'HG', 'JC', 'MC', 'MN',
+  'MS', 'NT', 'NL', 'OC', 'PL', 'QT', 'QR', 'SP', 'SL', 'SR', 'TC', 'TS', 'TL', 'VZ', 'YN', 'ZS', 'NE'])
+
+/** Misma regla que el backend: forma, mes 01-12, día 01-31 y entidad federativa válida. */
+function curpValida(curp: string): boolean {
+  if (!CURP_FORMA.test(curp)) return false
+  const mes = Number(curp.slice(6, 8))
+  const dia = Number(curp.slice(8, 10))
+  return mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31 && ENTIDADES_CURP.has(curp.slice(11, 13))
+}
 const RFC = /^[A-Z&Ñ]{3,4}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[A-Z0-9]{3}$/
 const REQUISITOS: { texto: string; cumple: (c: string) => boolean }[] = [
   { texto: 'De 8 a 64 caracteres', cumple: (c) => c.length >= 8 && c.length <= 64 },
@@ -49,7 +60,7 @@ const VALIDACIONES: ((f: Formulario) => Errores)[] = [
     if (!f.fechaNacimiento) e.fechaNacimiento = 'Seleccione su fecha de nacimiento.'
     else if (f.fechaNacimiento > fechaMaxima()) e.fechaNacimiento = 'Debe ser mayor de edad.'
     else if (f.fechaNacimiento < '1900-01-01') e.fechaNacimiento = 'Fecha no válida.'
-    if (!CURP.test(f.curp.toUpperCase())) e.curp = 'La CURP no cumple el formato oficial (18 caracteres).'
+    if (!curpValida(f.curp.toUpperCase())) e.curp = 'La CURP no cumple el formato oficial (18 caracteres).'
     if (!RFC.test(f.rfc.toUpperCase())) e.rfc = 'RFC no válido (12 o 13 caracteres).'
     if (!NOMBRE.test(f.nacionalidad.trim())) e.nacionalidad = 'Escriba su nacionalidad.'
     return e
@@ -77,10 +88,16 @@ const VALIDACIONES: ((f: Formulario) => Errores)[] = [
     const e: Errores = {}
     if (!f.ocupacion.trim()) e.ocupacion = 'Obligatorio.'
     if (!f.empresa.trim()) e.empresa = 'Obligatorio.'
-    if (!/^\d{1,10}(\.\d{1,2})?$/.test(f.ingresoMensual) || !(Number(f.ingresoMensual) > 0)) e.ingresoMensual = 'Monto mayor a cero, máximo 2 decimales.'
+    if (!/^\d{1,10}(\.\d{1,2})?$/.test(f.ingresoMensual) || Number(f.ingresoMensual) <= 0) e.ingresoMensual = 'Monto mayor a cero, máximo 2 decimales.'
     return e
   },
 ]
+
+/** Color de la barra de fuerza según cuántos requisitos cumple la contraseña. */
+function colorDeFuerza(cumplidos: number): string {
+  if (cumplidos <= 2) return 'var(--error)'
+  return cumplidos <= 4 ? 'var(--pendiente)' : 'var(--exito)'
+}
 
 const TITULOS = ['Datos personales', 'Acceso y contacto', 'Domicilio', 'Información laboral']
 
@@ -112,7 +129,7 @@ export function Registro() {
     if (validarPaso()) setPaso((p) => p + 1)
   }
 
-  async function enviar(e: FormEvent) {
+  async function enviar(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
     if (paso < TITULOS.length - 1) {
       siguiente()
@@ -153,7 +170,7 @@ export function Registro() {
     }
     try {
       const r = await auth.registrar(alta)
-      navegar('/login', { replace: true, state: { mensaje: r.mensaje, usuario: alta.nombreUsuario } })
+      void navegar('/login', { replace: true, state: { mensaje: r.mensaje, usuario: alta.nombreUsuario } })
     } catch (err) {
       setError(mensajeDeError(err))
       // Si el dato duplicado es de un paso anterior, se regresa a ese paso
@@ -175,7 +192,9 @@ export function Registro() {
   )
 
   const cumplidos = REQUISITOS.filter((r) => r.cumple(f.contrasena)).length
-  const colorFuerza = cumplidos <= 2 ? 'var(--error)' : cumplidos <= 4 ? 'var(--pendiente)' : 'var(--exito)'
+  const colorFuerza = colorDeFuerza(cumplidos)
+  let textoEnviar = enviando ? 'Creando cuenta…' : 'Crear cuenta'
+  if (paso < TITULOS.length - 1) textoEnviar = 'Siguiente'
 
   return (
     <PantallaAcceso ancho>
@@ -189,7 +208,7 @@ export function Registro() {
           <fieldset>
             <legend>Datos personales</legend>
             <div className="rejilla-campos">
-              {campo('nombre', 'Nombre', { maxLength: 50, autoComplete: 'given-name', autoFocus: true })}
+              {campo('nombre', 'Nombre', { maxLength: 50, autoComplete: 'given-name' })}
               {campo('segundoNombre', 'Segundo nombre (opcional)', { maxLength: 50 })}
               {campo('apellidoPaterno', 'Apellido paterno', { maxLength: 50, autoComplete: 'family-name' })}
               {campo('apellidoMaterno', 'Apellido materno', { maxLength: 50 })}
@@ -223,7 +242,7 @@ export function Registro() {
           <fieldset>
             <legend>Acceso y contacto</legend>
             <div className="rejilla-campos">
-              {campo('correoElectronico', 'Correo electrónico', { type: 'email', maxLength: 100, autoComplete: 'email', autoFocus: true }, 'Le enviaremos un código para confirmarlo.')}
+              {campo('correoElectronico', 'Correo electrónico', { type: 'email', maxLength: 100, autoComplete: 'email' }, 'Le enviaremos un código para confirmarlo.')}
               {campo('nombreUsuario', 'Nombre de usuario', { maxLength: 50, autoComplete: 'username' })}
               <CampoContrasena etiqueta="Contraseña" valor={f.contrasena} alCambiar={(v) => setF((a) => ({ ...a, contrasena: v }))}
                 error={errores.contrasena} maxLength={64} autoComplete="new-password" />
@@ -252,7 +271,7 @@ export function Registro() {
           <fieldset>
             <legend>Domicilio</legend>
             <div className="rejilla-campos">
-              {campo('calle', 'Calle', { maxLength: 100, autoComplete: 'address-line1', autoFocus: true })}
+              {campo('calle', 'Calle', { maxLength: 100, autoComplete: 'address-line1' })}
               {campo('numeroExterior', 'Número exterior', { maxLength: 20 })}
               {campo('numeroInterior', 'Número interior (opcional)', { maxLength: 20 })}
               {campo('colonia', 'Colonia', { maxLength: 100 })}
@@ -268,7 +287,7 @@ export function Registro() {
           <fieldset>
             <legend>Información laboral</legend>
             <div className="rejilla-campos">
-              {campo('ocupacion', 'Ocupación', { maxLength: 100, autoFocus: true })}
+              {campo('ocupacion', 'Ocupación', { maxLength: 100 })}
               {campo('empresa', 'Empresa', { maxLength: 100 })}
               {campo('ingresoMensual', 'Ingreso mensual (MXN)', { inputMode: 'decimal', maxLength: 13 }, 'Ejemplo: 18500.00', (v) => v.replace(/[^\d.]/g, ''))}
             </div>
@@ -282,8 +301,9 @@ export function Registro() {
               <Icono nombre="flechaIzq" tamanio={18} /> Anterior
             </button>
           )}
-          <button className="boton" disabled={enviando}>
-            {paso < TITULOS.length - 1 ? <>Siguiente <Icono nombre="flechaDer" tamanio={18} /></> : enviando ? 'Creando cuenta…' : 'Crear cuenta'}
+          <button type="submit" className="boton" disabled={enviando}>
+            {textoEnviar}
+            {paso < TITULOS.length - 1 && <Icono nombre="flechaDer" tamanio={18} />}
           </button>
         </div>
       </form>
