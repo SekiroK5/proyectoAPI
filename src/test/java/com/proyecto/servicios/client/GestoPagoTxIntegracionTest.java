@@ -54,6 +54,8 @@ import static org.mockito.Mockito.when;
         "gestopago.cifrado.llave=HPo7OLqB4Fkk4E2yGOtwqw8H5fHR9kNx67OR4g4UdlA=",
         "gestopago.cifrado.iv=p5ldmBPdd/9pjC0bDC/nSg==",
         "gestopago.api-key=API-KEY-PRUEBA",
+        // Siempre contra el cliente HTTP real, aunque el .env local active la simulacion
+        "gestopago.simulado=false",
         // Timeout corto para probar el caso sin respuesta sin esperar 70 s
         "spring.cloud.openfeign.client.config.gestoPagoTx.read-timeout=1000"
 })
@@ -77,7 +79,7 @@ class GestoPagoTxIntegracionTest {
     @EnableFeignClients(clients = GestoPagoTxClient.class)
     @ImportAutoConfiguration({FeignAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class,
             JacksonAutoConfiguration.class})
-    @Import({GestoPagoTxGateway.class, CifradoGestoPago.class})
+    @Import({GestoPagoTxGateway.class, CifradoGestoPago.class, CircuitoGestoPago.class, SimuladorGestoPago.class})
     static class Contexto {
         @Bean
         Clock clock() {
@@ -149,6 +151,7 @@ class GestoPagoTxIntegracionTest {
     @Test
     @DisplayName("Token vencido (403 de GestoPago): renueva el token y reintenta con el nuevo")
     void sendTx_tokenVencido() {
+        when(tokenService.renovarToken()).thenReturn(true);
         when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("token-viejo"), Optional.of("token-nuevo"));
         GESTOPAGO.stubFor(post(urlEqualTo(SEND_TX)).inScenario("token").whenScenarioStateIs(STARTED)
                 .willReturn(aResponse().withStatus(403).withHeader("Content-Type", "application/json")
@@ -202,5 +205,23 @@ class GestoPagoTxIntegracionTest {
         String signedEnvio = formulario(GESTOPAGO.findAll(postRequestedFor(urlEqualTo(SEND_TX))).get(0)).get("signed");
         String signedConfirmacion = formulario(GESTOPAGO.findAll(postRequestedFor(urlEqualTo(CONFIRM_TX))).get(0)).get("signed");
         assertThat(signedConfirmacion).isEqualTo(signedEnvio);
+    }
+
+    @Test
+    @DisplayName("Formato <AUTORIZACION> de GestoPago por HTTP: se lee el código 03")
+    void sendTx_formatoAutorizacion() {
+        GESTOPAGO.stubFor(post(urlEqualTo(SEND_TX)).willReturn(aResponse().withStatus(200)
+                .withHeader("Content-Type", "text/xml;charset=UTF-8").withBody("""
+                <?xml version='1.0' encoding='UTF-8'?>
+                <AUTORIZACION>
+                    <NUM_AUTORIZACION>-1</NUM_AUTORIZACION>
+                    <CODIGO_MENSAJE>03</CODIGO_MENSAJE>
+                    <MENSAJE>Por el momento el carrier no responde, favor de intentar mas tarde.</MENSAJE>
+                </AUTORIZACION>""")));
+
+        Resultado res = gateway.enviar(PAYLOAD);
+
+        assertThat(res.codigo()).isEqualTo("03");
+        assertThat(res.xml().getNumAutorizacion()).isEqualTo("-1");
     }
 }

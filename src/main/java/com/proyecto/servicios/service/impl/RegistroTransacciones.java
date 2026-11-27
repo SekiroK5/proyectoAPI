@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
@@ -95,7 +96,34 @@ public class RegistroTransacciones {
         }
         guardarRespuesta(tx, resultado);
         tx.setEstatus(EstatusTransaccion.PENDIENTE_CONFIRMACION);
-        log.warn("Transaccion ID={} PENDIENTE_CONFIRMACION: {}", tx.getId(), resultado.error());
+        log.warn("Transaccion ID={} PENDIENTE_CONFIRMACION: {}", tx.getId(),
+                resultado.error() != null ? resultado.error() : "GestoPago respondio codigo " + resultado.codigo());
+        return transaccionRepository.save(tx);
+    }
+
+    /**
+     * confirmTx no resolvio la transaccion: cuenta el intento y programa el siguiente. Al llegar al maximo
+     * pasa a REVISION_MANUAL (el saldo sigue apartado) y ya no se vuelve a llamar a GestoPago por ella.
+     */
+    @Transactional("sfTransactionManager")
+    public Transaccion programarSiguienteConfirmacion(Integer transaccionId, Resultado resultado,
+                                                      LocalDateTime proxima, int maxIntentos) {
+        Transaccion tx = bloquear(transaccionId);
+        if (tx.getEstatus() == EstatusTransaccion.APLICADA || tx.getEstatus() == EstatusTransaccion.RECHAZADA) {
+            return tx;
+        }
+        guardarRespuesta(tx, resultado);
+        int intentos = (tx.getIntentosConfirmacion() == null ? 0 : tx.getIntentosConfirmacion()) + 1;
+        tx.setIntentosConfirmacion(intentos);
+        if (intentos >= maxIntentos) {
+            tx.setEstatus(EstatusTransaccion.REVISION_MANUAL);
+            tx.setProximaConfirmacion(null);
+            log.warn("Transaccion ID={} pasa a REVISION_MANUAL tras {} intentos de confirmTx; saldo apartado", tx.getId(), intentos);
+        } else {
+            tx.setEstatus(EstatusTransaccion.PENDIENTE_CONFIRMACION);
+            tx.setProximaConfirmacion(proxima);
+            log.info("Transaccion ID={} sin resolver (intento {}/{}); siguiente confirmTx a las {}", tx.getId(), intentos, maxIntentos, proxima);
+        }
         return transaccionRepository.save(tx);
     }
 

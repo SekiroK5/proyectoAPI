@@ -2,6 +2,7 @@ package com.proyecto.servicios.entity.sf;
 
 import com.proyecto.servicios.enums.Catalogos.EstadoCivil;
 import com.proyecto.servicios.enums.Catalogos.MetodoA2F;
+import com.proyecto.servicios.enums.Catalogos.PropositoCodigo;
 import com.proyecto.servicios.enums.Catalogos.Sexo;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -109,6 +110,27 @@ public class Cliente {
 
     @Column(name = "bloqueado_hasta")
     private LocalDateTime bloqueadoHasta;
+
+    // ---------------- Verificacion del correo ----------------
+
+    @Column(name = "correo_verificado", nullable = false)
+    private Boolean correoVerificado = true;
+
+    @Column(name = "correo_codigo_hash", length = 64)
+    private String correoCodigoHash;
+
+    @Column(name = "correo_codigo_expira")
+    private LocalDateTime correoCodigoExpira;
+
+    @Column(name = "correo_intentos", nullable = false)
+    private Integer correoIntentos = 0;
+
+    @Column(name = "correo_ultimo_envio")
+    private LocalDateTime correoUltimoEnvio;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "correo_codigo_proposito", length = 20)
+    private PropositoCodigo correoCodigoProposito;
 
     @Column(name = "fecha_creacion", nullable = false, updatable = false)
     private LocalDateTime fechaCreacion;

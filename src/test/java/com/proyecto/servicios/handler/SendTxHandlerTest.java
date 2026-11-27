@@ -17,9 +17,15 @@ import com.proyecto.servicios.model.producto.ProductoDto;
 import com.proyecto.servicios.repository.sf.ClienteRepository;
 import com.proyecto.servicios.repository.sf.CuentaRepository;
 import com.proyecto.servicios.repository.sf.TransaccionRepository;
+import com.proyecto.servicios.repository.sf.VerificacionReferenciaRepository;
+import com.proyecto.servicios.entity.sf.VerificacionReferencia;
+import com.proyecto.servicios.enums.Catalogos.ResultadoVerificacion;
+import java.time.LocalDateTime;
 import com.proyecto.servicios.seguridad.IntentosFallidos;
 import com.proyecto.servicios.seguridad.Totp;
+import com.proyecto.servicios.seguridad.EnvioCorreo;
 import com.proyecto.servicios.seguridad.ValidadorA2F;
+import com.proyecto.servicios.seguridad.VerificacionCorreo;
 import com.proyecto.servicios.service.ProductoService;
 import com.proyecto.servicios.service.impl.RegistroTransacciones;
 import org.apache.commons.codec.binary.Base32;
@@ -44,6 +50,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -64,6 +71,7 @@ class SendTxHandlerTest {
     @Mock private ProductoService productoService;
     @Mock private RegistroTransacciones registro;
     @Mock private GestoPagoTxGateway gateway;
+    @Mock private VerificacionReferenciaRepository verificacionRepository;
 
     private final Totp totp = new Totp(RELOJ);
     private SendTxHandler handler;
@@ -73,8 +81,9 @@ class SendTxHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new SendTxHandler(cuentaRepository, transaccionRepository, productoService,
-                new ValidadorA2F(totp, new IntentosFallidos(clienteRepository, RELOJ, 5, 15), clienteRepository), registro, gateway,
-                new ObjectMapper(), RELOJ, "083", "America/Mexico_City");
+                new ValidadorA2F(totp, new IntentosFallidos(clienteRepository, RELOJ, 5, 15), clienteRepository,
+                        new VerificacionCorreo(mock(EnvioCorreo.class), RELOJ)), registro, gateway,
+                new ObjectMapper(), verificacionRepository, RELOJ, "083", "America/Mexico_City");
 
         cliente = new Cliente();
         cliente.setId(CLIENTE_ID);
@@ -123,6 +132,9 @@ class SendTxHandlerTest {
         p.setTipoFront(tipoFront);
         p.setIdCatTipoServicio(idCatTipoServicio);
         p.setPrecio(precio);
+        p.setServicio("Servicio " + idServicio);
+        p.setProducto("Producto " + idProducto);
+        p.setLogoUrl("https://logos/" + idServicio + ".png");
         return p;
     }
 
@@ -340,6 +352,9 @@ class SendTxHandlerTest {
         assertThat(res.getMensaje()).isEqualTo(SendTxHandler.MSG_PAGO_EXITOSO);
         assertThat(res.getDatos().getEstatus()).isEqualTo(EstatusTransaccion.APLICADA);
         assertThat(res.getDatos().getNumAutorizacion()).isEqualTo("100024988");
+        // El resultado muestra el servicio igual que el historial
+        assertThat(res.getDatos().getServicio()).isEqualTo("Servicio 133");
+        assertThat(res.getDatos().getLogoUrl()).isEqualTo("https://logos/133.png");
         verify(registro).aplicar(eq(99), any());
 
         String payload = payloadEnviado();
@@ -358,9 +373,12 @@ class SendTxHandlerTest {
         req.setIdProducto(205);
         req.setMonto(new BigDecimal("601.99"));
         req.setReferencia("25720381");
+        req.setFolioVerificacion("folio-1");
         cuenta.setSaldo(new BigDecimal("1000.00"));
+        verificacionVigente("folio-1", 76, "25720381");
 
         assertThat(ejecutar(req).getStatus()).isEqualTo(HttpStatus.OK);
+        verify(verificacionRepository).marcarUsada("folio-1");
         assertThat(payloadEnviado()).contains("\"telefono\":\"1111111111\"", "\"referencia\":\"25720381\"", "\"montoPago\":601.99");
     }
 
@@ -451,5 +469,94 @@ class SendTxHandlerTest {
 
         assertThat(ejecutar(recarga()).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         verify(registro).rechazar(eq(99), any());
+    }
+
+    @Test
+    @DisplayName("Código 03 (carrier sin respuesta): 503 inmediato con saldo devuelto, sin quedar por confirmar")
+    void rechazada_carrierNoDisponible() {
+        registroCierraCon(EstatusTransaccion.RECHAZADA);
+        when(gateway.enviar(anyString())).thenReturn(respuesta("03", "Por el momento el carrier no responde"));
+
+        ApiResponse<TransaccionResponse> res = ejecutar(recarga());
+
+        assertThat(res.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(res.getMensaje()).contains("no está respondiendo", "No se realizó ningún cargo", "GP-03")
+                .doesNotContain("carrier");
+        verify(registro).rechazar(eq(99), any());
+        verify(registro, never()).marcarPorConfirmar(any(), any());
+    }
+
+    // ======================== Verificación de referencia en pagos de servicio ========================
+
+    private VerificacionReferencia verificacionVigente(String folio, int idServicio, String referencia) {
+        VerificacionReferencia v = new VerificacionReferencia();
+        v.setFolio(folio);
+        v.setClienteId(CLIENTE_ID);
+        v.setIdServicio(idServicio);
+        v.setIdProducto(205);
+        v.setReferencia(referencia);
+        v.setResultado(ResultadoVerificacion.VALIDA);
+        v.setUsada(false);
+        // El reloj de la prueba es UTC: la vigencia se compara con la hora del servidor
+        v.setExpira(LocalDateTime.now(RELOJ).plusMinutes(10));
+        lenient().when(verificacionRepository.findById(folio)).thenReturn(Optional.of(v));
+        lenient().when(verificacionRepository.marcarUsada(folio)).thenReturn(1);
+        return v;
+    }
+
+    private TransaccionRequest pagoDeServicio(String folio) {
+        TransaccionRequest req = recarga();
+        req.setIdServicio(76);
+        req.setIdProducto(205);
+        req.setMonto(new BigDecimal("100.00"));
+        req.setReferencia("25720381");
+        req.setFolioVerificacion(folio);
+        return req;
+    }
+
+    @Test
+    @DisplayName("Pago de servicio sin folio de verificación: 400 y no se pide el 2FA ni se aparta saldo")
+    void servicio_sinVerificacion() {
+        ApiResponse<TransaccionResponse> res = ejecutar(pagoDeServicio(null));
+
+        assertThat(res.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(res.getMensaje()).isEqualTo(SendTxHandler.MSG_SIN_VERIFICAR);
+        verify(registro, never()).apartarSaldo(any(), any());
+    }
+
+    @Test
+    @DisplayName("Verificación de otra referencia, inválida o vencida: 409")
+    void servicio_verificacionNoCorresponde() {
+        VerificacionReferencia v = verificacionVigente("folio-2", 76, "OTRA-REFERENCIA");
+        assertThat(ejecutar(pagoDeServicio("folio-2")).getMensaje()).isEqualTo(SendTxHandler.MSG_VERIFICACION_INVALIDA);
+
+        v.setReferencia("25720381");
+        v.setResultado(ResultadoVerificacion.INVALIDA);
+        assertThat(ejecutar(pagoDeServicio("folio-2")).getStatus()).isEqualTo(HttpStatus.CONFLICT);
+
+        v.setResultado(ResultadoVerificacion.VALIDA);
+        v.setExpira(LocalDateTime.now(RELOJ).minusMinutes(1));
+        assertThat(ejecutar(pagoDeServicio("folio-2")).getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        verify(registro, never()).apartarSaldo(any(), any());
+    }
+
+    @Test
+    @DisplayName("Verificación de otro cliente: 409")
+    void servicio_verificacionDeOtroCliente() {
+        verificacionVigente("folio-3", 76, "25720381").setClienteId(99);
+
+        assertThat(ejecutar(pagoDeServicio("folio-3")).getStatus()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    @DisplayName("Una verificación ya usada (o usada por una petición simultánea) no autoriza otro pago")
+    void servicio_verificacionUsada() {
+        verificacionVigente("folio-4", 76, "25720381").setUsada(true);
+        assertThat(ejecutar(pagoDeServicio("folio-4")).getMensaje()).isEqualTo(SendTxHandler.MSG_VERIFICACION_USADA);
+
+        verificacionVigente("folio-5", 76, "25720381");
+        when(verificacionRepository.marcarUsada("folio-5")).thenReturn(0);
+        assertThat(ejecutar(pagoDeServicio("folio-5")).getMensaje()).isEqualTo(SendTxHandler.MSG_VERIFICACION_USADA);
+        verify(registro, never()).apartarSaldo(any(), any());
     }
 }

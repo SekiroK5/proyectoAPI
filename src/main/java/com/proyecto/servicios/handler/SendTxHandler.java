@@ -14,6 +14,10 @@ import com.proyecto.servicios.enums.Catalogos.EstatusCuenta;
 import com.proyecto.servicios.enums.Catalogos.EstatusTransaccion;
 import com.proyecto.servicios.model.producto.ProductoDto;
 import com.proyecto.servicios.repository.sf.CuentaRepository;
+import com.proyecto.servicios.repository.sf.VerificacionReferenciaRepository;
+import com.proyecto.servicios.entity.sf.VerificacionReferencia;
+import com.proyecto.servicios.enums.Catalogos.ResultadoVerificacion;
+import com.proyecto.servicios.mapper.TransaccionMapper;
 import com.proyecto.servicios.repository.sf.TransaccionRepository;
 import com.proyecto.servicios.seguridad.ValidadorA2F;
 import com.proyecto.servicios.service.ProductoService;
@@ -64,6 +68,9 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     static final String MSG_A2F_INVALIDO = ValidadorA2F.MSG_INVALIDO;
     static final String MSG_A2F_EN_USO = ValidadorA2F.MSG_EN_USO;
     static final String MSG_PAGO_EXITOSO = "Pago exitoso.";
+    static final String MSG_SIN_VERIFICAR = "Verifique la referencia antes de pagar (POST /api/v1/referencias/verificacion).";
+    static final String MSG_VERIFICACION_INVALIDA = "La verificación de la referencia no corresponde a este pago, ya venció o la referencia no es válida. Verifíquela de nuevo.";
+    static final String MSG_VERIFICACION_USADA = "Esa verificación de referencia ya se usó en otro pago. Verifíquela de nuevo.";
     static final String MSG_POR_CONFIRMAR = "GestoPago no respondió a tiempo. El monto queda apartado mientras se confirma la operación.";
 
     private static final DateTimeFormatter HORA_LOCAL = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -72,6 +79,8 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     private static final int LONGITUD_UPC = 10;
     private static final int TIPO_FRONT_RECARGA = 1;
     private static final int TIPO_FRONT_SERVICIO = 2;
+    /** Productos con verifyReference: se pagan igual que un servicio, con la referencia ya verificada. */
+    private static final int TIPO_FRONT_SERVICIO_VERIFICABLE = 4;
 
     private final CuentaRepository cuentaRepository;
     private final TransaccionRepository transaccionRepository;
@@ -80,7 +89,10 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
     private final RegistroTransacciones registro;
     private final GestoPagoTxGateway gateway;
     private final ObjectMapper objectMapper;
+    private final VerificacionReferenciaRepository verificacionRepository;
     private final Clock clock;
+    /** Reloj del servidor (sin zona del comercio): con el que se guardan las fechas de las verificaciones. */
+    private final Clock relojServidor;
     private final String unidad;
     private final SecureRandom random = new SecureRandom();
 
@@ -91,6 +103,7 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
                          RegistroTransacciones registro,
                          GestoPagoTxGateway gateway,
                          ObjectMapper objectMapper,
+                         VerificacionReferenciaRepository verificacionRepository,
                          Clock clock,
                          @Value("${gestopago.tx.unidad}") String unidad,
                          @Value("${gestopago.tx.zona-horaria}") String zonaHoraria) {
@@ -104,8 +117,10 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         this.registro = registro;
         this.gateway = gateway;
         this.objectMapper = objectMapper;
+        this.verificacionRepository = verificacionRepository;
         // horaLocal se genera en la zona horaria del comercio, no en la del servidor
         this.clock = clock.withZone(ZoneId.of(zonaHoraria));
+        this.relojServidor = clock;
         this.unidad = unidad;
     }
 
@@ -149,11 +164,22 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         if (rechazoPayload != null) {
             return rechazoPayload;
         }
+        boolean esServicio = esPagoDeServicio(producto.get());
+        if (esServicio) {
+            ApiResponse<TransaccionResponse> rechazoVerificacion = validarVerificacion(comando.clienteId(), request);
+            if (rechazoVerificacion != null) {
+                return rechazoVerificacion;
+            }
+        }
 
         // ── 3. Segundo factor ──
         ApiResponse<TransaccionResponse> rechazoA2F = validadorA2F.validar(cliente, request.getCodigoA2F());
         if (rechazoA2F != null) {
             return rechazoA2F;
+        }
+        // La verificacion autoriza un solo pago: se marca como usada antes de apartar el saldo
+        if (esServicio && verificacionRepository.marcarUsada(request.getFolioVerificacion()) == 0) {
+            return ApiResponse.error(HttpStatus.CONFLICT, MSG_VERIFICACION_USADA);
         }
 
         // ── 4. Payload SendTx y saldo apartado ──
@@ -172,10 +198,10 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         Resultado resultado = gateway.enviar(tx.getPayloadEnviado());
 
         // ── 7. Respuesta ──
-        return responder(tx, resultado);
+        return responder(tx, resultado, producto.get());
     }
 
-    private ApiResponse<TransaccionResponse> responder(Transaccion tx, Resultado resultado) {
+    private ApiResponse<TransaccionResponse> responder(Transaccion tx, Resultado resultado, ProductoDto producto) {
         if (!resultado.enviada()) {
             registro.rechazar(tx.getId(), resultado);
             return ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE,
@@ -183,11 +209,11 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         }
         if (!resultado.tieneRespuesta() || CODIGO_TIMEOUT.equals(resultado.codigo())) {
             Transaccion porConfirmar = registro.marcarPorConfirmar(tx.getId(), resultado);
-            return ApiResponse.exito(HttpStatus.ACCEPTED, MSG_POR_CONFIRMAR, aResponse(porConfirmar));
+            return ApiResponse.exito(HttpStatus.ACCEPTED, MSG_POR_CONFIRMAR, conProducto(TransaccionMapper.aResponse(porConfirmar), producto));
         }
         if (CODIGO_EXITO.equals(resultado.codigo())) {
             Transaccion aplicada = registro.aplicar(tx.getId(), resultado);
-            return ApiResponse.exito(HttpStatus.OK, MSG_PAGO_EXITOSO, aResponse(aplicada));
+            return ApiResponse.exito(HttpStatus.OK, MSG_PAGO_EXITOSO, conProducto(TransaccionMapper.aResponse(aplicada), producto));
         }
         Transaccion rechazada = registro.rechazar(tx.getId(), resultado);
         // El texto original de GestoPago queda en la bitacora; al cliente se le responde con un mensaje propio
@@ -226,7 +252,7 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
             }
             return null;
         }
-        if (Integer.valueOf(TIPO_FRONT_SERVICIO).equals(tipoFront)) {
+        if (esPagoDeServicio(producto)) {
             if (request.getReferencia() == null) {
                 return ApiResponse.error(HttpStatus.BAD_REQUEST, "La referencia es obligatoria para el pago de este servicio.");
             }
@@ -238,6 +264,47 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
                 "El tipo de producto (tipoFront " + tipoFront + ") no se puede pagar con este servicio.");
     }
 
+    /** Nombre, categoria y logotipo del servicio para mostrar el resultado igual que en el historial. */
+    private static TransaccionResponse conProducto(TransaccionResponse res, ProductoDto producto) {
+        res.setServicio(producto.getServicio());
+        res.setProducto(producto.getProducto());
+        res.setCategoria(producto.getCategoria());
+        res.setLogoUrl(producto.getLogoUrl());
+        return res;
+    }
+
+    private static boolean esPagoDeServicio(ProductoDto producto) {
+        return Integer.valueOf(TIPO_FRONT_SERVICIO).equals(producto.getTipoFront())
+                || Integer.valueOf(TIPO_FRONT_SERVICIO_VERIFICABLE).equals(producto.getTipoFront());
+    }
+
+    /**
+     * Un pago de servicio solo procede con una verificacion de referencia del mismo cliente, servicio y
+     * referencia, que no sea INVALIDA, no haya vencido y no se haya usado.
+     */
+    private ApiResponse<TransaccionResponse> validarVerificacion(Integer clienteId, TransaccionRequest request) {
+        if (request.getFolioVerificacion() == null) {
+            return ApiResponse.error(HttpStatus.BAD_REQUEST, MSG_SIN_VERIFICAR);
+        }
+        Optional<VerificacionReferencia> encontrada = verificacionRepository.findById(request.getFolioVerificacion());
+        if (encontrada.isEmpty()) {
+            return ApiResponse.error(HttpStatus.CONFLICT, MSG_VERIFICACION_INVALIDA);
+        }
+        VerificacionReferencia v = encontrada.get();
+        boolean corresponde = v.getClienteId().equals(clienteId)
+                && v.getIdServicio().equals(request.getIdServicio())
+                && v.getReferencia().equals(request.getReferencia())
+                && v.getResultado() != ResultadoVerificacion.INVALIDA
+                && v.getExpira().isAfter(LocalDateTime.now(relojServidor));
+        if (!corresponde) {
+            return ApiResponse.error(HttpStatus.CONFLICT, MSG_VERIFICACION_INVALIDA);
+        }
+        if (Boolean.TRUE.equals(v.getUsada())) {
+            return ApiResponse.error(HttpStatus.CONFLICT, MSG_VERIFICACION_USADA);
+        }
+        return null;
+    }
+
     /** JSON en el orden y con los nombres de la documentacion; solo se incluyen los campos que aplican. */
     private String payloadJson(Transaccion tx, ProductoDto producto) {
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -245,7 +312,7 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
         payload.put("idServicio", tx.getIdServicio());
         payload.put("telefono", tx.getTelefono());
         payload.put("horaLocal", tx.getHoraLocal());
-        if (Integer.valueOf(TIPO_FRONT_SERVICIO).equals(producto.getTipoFront())) {
+        if (esPagoDeServicio(producto)) {
             payload.put("referencia", tx.getReferencia());
             payload.put("montoPago", tx.getMonto());
         }
@@ -269,29 +336,5 @@ public class SendTxHandler implements Handler<SendTxComando, TransaccionResponse
             upc = sb.toString();
         } while (transaccionRepository.existsByUpc(upc));
         return upc;
-    }
-
-    private static TransaccionResponse aResponse(Transaccion tx) {
-        TransaccionResponse res = new TransaccionResponse();
-        res.setId(tx.getId());
-        res.setUpc(tx.getUpc());
-        res.setEstatus(tx.getEstatus());
-        res.setNumeroCuenta(tx.getCuenta().getNumeroCuenta());
-        res.setSaldoCuenta(tx.getCuenta().getSaldo());
-        res.setIdServicio(tx.getIdServicio());
-        res.setIdProducto(tx.getIdProducto());
-        res.setTelefono(tx.getTelefono());
-        res.setReferencia(tx.getReferencia());
-        res.setMonto(tx.getMonto());
-        res.setNumAutorizacion(tx.getNumAutorizacion());
-        res.setIdTx(tx.getIdTx());
-        res.setPin(tx.getPin());
-        res.setCodigoGestoPago(tx.getCodigoRespuesta());
-        // Solo el texto de exito; un error interno (timeout, red) no se expone al cliente
-        if (tx.getEstatus() == EstatusTransaccion.APLICADA) {
-            res.setMensajeGestoPago(tx.getTextoRespuesta());
-        }
-        res.setFecha(tx.getFechaCreacion());
-        return res;
     }
 }

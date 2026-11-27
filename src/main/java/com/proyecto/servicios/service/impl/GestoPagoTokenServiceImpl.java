@@ -1,17 +1,21 @@
 package com.proyecto.servicios.service.impl;
 
+import com.proyecto.servicios.client.CircuitoGestoPago;
 import com.proyecto.servicios.client.GestoPagoAuthClient;
 import com.proyecto.servicios.entity.gestopago.GestoPagoToken;
 import com.proyecto.servicios.mapper.GestoPagoTokenMapper;
 import com.proyecto.servicios.model.gestopago.GestoPagoAuthResponse;
 import com.proyecto.servicios.repository.gestopago.GestoPagoTokenRepository;
 import com.proyecto.servicios.service.GestoPagoTokenService;
+import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -37,15 +41,26 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
     private long vigenciaHoras;
 
     private final Clock clock;
+    private final CircuitoGestoPago circuito;
+    /**
+     * Minimo entre dos intentos de renovacion. PuntoRed no permite pedir un token por peticion: aunque
+     * fallen muchas peticiones seguidas (401/403, sin token), solo se llama a /authenticate una vez en este lapso.
+     */
+    private final Duration intervaloMinimo;
+    private Instant ultimoIntento;
 
     public GestoPagoTokenServiceImpl(GestoPagoAuthClient gestoPagoAuthClient,
                                      GestoPagoTokenRepository tokenRepository,
                                      GestoPagoTokenMapper tokenMapper,
-                                     Clock clock) {
+                                     Clock clock,
+                                     CircuitoGestoPago circuito,
+                                     @Value("${gestopago.auth.intervalo-minimo-minutos:15}") long intervaloMinimoMinutos) {
         this.gestoPagoAuthClient = gestoPagoAuthClient;
         this.tokenRepository = tokenRepository;
         this.tokenMapper = tokenMapper;
         this.clock = clock;
+        this.circuito = circuito;
+        this.intervaloMinimo = Duration.ofMinutes(intervaloMinimoMinutos);
     }
 
     /**
@@ -76,11 +91,21 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
     }
 
     @Override
-    public void renovarToken() {
+    public synchronized boolean renovarToken() {
         if (password == null || password.isBlank()) {
             log.warn("No se configuro GESTOPAGO_PASSWORD; se omite la renovacion del token GestoPago");
-            return;
+            return false;
         }
+        Instant ahora = clock.instant();
+        if (ultimoIntento != null && ahora.isBefore(ultimoIntento.plus(intervaloMinimo))) {
+            log.warn("Renovacion de token GestoPago omitida: el ultimo intento fue hace menos de {} min", intervaloMinimo.toMinutes());
+            return false;
+        }
+        if (!circuito.permite()) {
+            log.warn("Renovacion de token GestoPago omitida: llamadas en pausa por fallas consecutivas");
+            return false;
+        }
+        ultimoIntento = ahora;
         log.info("Renovando token GestoPago para distribuidor={}", idDistribuidor);
         try {
             GestoPagoAuthResponse response = gestoPagoAuthClient.authenticate(
@@ -88,7 +113,8 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
 
             if (response == null || response.getToken() == null) {
                 log.error("La respuesta de GestoPago no contiene token");
-                return;
+                circuito.registrarFalla("authenticate");
+                return false;
             }
 
             GestoPagoToken tokenEntity = tokenRepository
@@ -106,10 +132,19 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
                     });
 
             tokenRepository.save(tokenEntity);
+            circuito.registrarExito();
             log.info("Token GestoPago renovado correctamente");
+            return true;
 
-        } catch (Exception e) {
-            log.error("Error al renovar token GestoPago: {}", e.getMessage(), e);
+        } catch (FeignException e) {
+            // Solo el codigo HTTP: el mensaje de Feign incluye la URL con las credenciales
+            log.error("Error al renovar token GestoPago: HTTP {}", e.status());
+            circuito.registrarFalla("authenticate");
+            return false;
+        } catch (RuntimeException e) {
+            log.error("Error al renovar token GestoPago: {}", e.getClass().getSimpleName());
+            circuito.registrarFalla("authenticate");
+            return false;
         }
     }
 

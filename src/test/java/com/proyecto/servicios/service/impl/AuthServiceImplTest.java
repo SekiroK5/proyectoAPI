@@ -2,6 +2,8 @@ package com.proyecto.servicios.service.impl;
 
 import com.proyecto.servicios.dto.request.A2fConfiguracionRequest;
 import com.proyecto.servicios.dto.request.A2fVerificacionRequest;
+import com.proyecto.servicios.dto.request.CorreoReenvioRequest;
+import com.proyecto.servicios.dto.request.CorreoVerificacionRequest;
 import com.proyecto.servicios.dto.request.LoginRequest;
 import com.proyecto.servicios.dto.response.A2fConfiguracionResponse;
 import com.proyecto.servicios.dto.response.ApiResponse;
@@ -11,15 +13,19 @@ import com.proyecto.servicios.entity.sf.Cliente;
 import com.proyecto.servicios.entity.sf.Cuenta;
 import com.proyecto.servicios.enums.Catalogos.MetodoA2F;
 import com.proyecto.servicios.enums.Catalogos.PasoLogin;
+import com.proyecto.servicios.enums.Catalogos.PropositoCodigo;
 import com.proyecto.servicios.repository.sf.ClienteRepository;
+import com.proyecto.servicios.seguridad.EnvioCorreo;
 import com.proyecto.servicios.seguridad.IntentosFallidos;
 import com.proyecto.servicios.seguridad.TokenJwt;
 import com.proyecto.servicios.seguridad.Totp;
+import com.proyecto.servicios.seguridad.VerificacionCorreo;
 import org.apache.commons.codec.binary.Base32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -33,9 +39,14 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -50,6 +61,9 @@ class AuthServiceImplTest {
     @Mock
     private ClienteRepository clienteRepository;
 
+    @Mock
+    private EnvioCorreo envioCorreo;
+
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private final TokenJwt tokenJwt = new TokenJwt("secreto-de-pruebas-de-al-menos-32-bytes!", "productosList", 30, 5, Clock.systemUTC());
     private final Totp totp = new Totp(RELOJ);
@@ -60,7 +74,8 @@ class AuthServiceImplTest {
     @BeforeEach
     void setUp() {
         authService = new AuthServiceImpl(clienteRepository, passwordEncoder, tokenJwt, totp,
-                new IntentosFallidos(clienteRepository, RELOJ, MAX_INTENTOS, 15), "productosList");
+                new IntentosFallidos(clienteRepository, RELOJ, MAX_INTENTOS, 15),
+                new VerificacionCorreo(envioCorreo, RELOJ), "productosList");
 
         cliente = new Cliente();
         cliente.setId(1);
@@ -293,5 +308,268 @@ class AuthServiceImplTest {
     void verificar_sinConfigurar() {
         esError(authService.verificarA2F(verificacion(tokenTemporal(), "123456")), HttpStatus.CONFLICT, AuthServiceImpl.MSG_A2F_SIN_CONFIGURAR);
         assertThat(cliente.getIntentosFallidos()).isZero();
+    }
+
+    // ======================== Verificacion del correo ========================
+
+    private static CorreoVerificacionRequest codigoCorreo(String token, String codigo) {
+        CorreoVerificacionRequest req = new CorreoVerificacionRequest();
+        req.setTokenTemporal(token);
+        req.setCodigo(codigo);
+        return req;
+    }
+
+    private static CorreoReenvioRequest reenvio(String token) {
+        CorreoReenvioRequest req = new CorreoReenvioRequest();
+        req.setTokenTemporal(token);
+        return req;
+    }
+
+    /** Deja al cliente con el correo sin confirmar y devuelve el codigo que se "envio". */
+    private String conCorreoPendiente() {
+        when(envioCorreo.enviarCodigo(anyString(), any(), anyString(), anyLong(), any())).thenReturn(true);
+        new VerificacionCorreo(envioCorreo, RELOJ).iniciar(cliente);
+        ArgumentCaptor<String> codigo = ArgumentCaptor.forClass(String.class);
+        verify(envioCorreo).enviarCodigo(eq("juan.perez@correo.com"), any(), codigo.capture(), eq(15L), any());
+        return codigo.getValue();
+    }
+
+    @Test
+    @DisplayName("Login con correo sin confirmar: el siguiente paso es VERIFICAR_CORREO")
+    void login_correoSinConfirmar() {
+        conCorreoPendiente();
+
+        ApiResponse<LoginResponse> r = authService.iniciarSesion(login(USUARIO, CONTRASENA));
+
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(r.getDatos().getSiguientePaso()).isEqualTo(PasoLogin.VERIFICAR_CORREO);
+        assertThat(r.getDatos().getTokenTemporal()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("Con el correo sin confirmar no se puede saltar al segundo factor")
+    void a2f_bloqueadoSinCorreo() {
+        conCorreoPendiente();
+        String token = tokenTemporal();
+
+        assertThat(authService.configurarA2F(configuracion(token)).getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(authService.verificarA2F(verificacion(token, "123456")).getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("Código correcto: confirma el correo y continúa con CONFIGURAR_A2F")
+    void verificarCorreo_correcto() {
+        String codigo = conCorreoPendiente();
+
+        ApiResponse<LoginResponse> r = authService.verificarCorreo(codigoCorreo(tokenTemporal(), codigo));
+
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(r.getDatos().getSiguientePaso()).isEqualTo(PasoLogin.CONFIGURAR_A2F);
+        assertThat(cliente.getCorreoVerificado()).isTrue();
+        assertThat(cliente.getCorreoCodigoHash()).isNull();
+    }
+
+    @Test
+    @DisplayName("Código incorrecto: 401 y cuenta el intento; al quinto se agotan")
+    void verificarCorreo_incorrecto() {
+        conCorreoPendiente();
+        String token = tokenTemporal();
+
+        for (int i = 1; i < VerificacionCorreo.MAX_INTENTOS; i++) {
+            assertThat(authService.verificarCorreo(codigoCorreo(token, "000000")).getStatus())
+                    .isEqualTo(HttpStatus.UNAUTHORIZED);
+        }
+        assertThat(authService.verificarCorreo(codigoCorreo(token, "000000")).getStatus())
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(authService.verificarCorreo(codigoCorreo(token, "000000")).getStatus())
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(cliente.getCorreoVerificado()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Código vencido: 410")
+    void verificarCorreo_vencido() {
+        String codigo = conCorreoPendiente();
+        cliente.setCorreoCodigoExpira(LocalDateTime.now(RELOJ).minusSeconds(1));
+
+        assertThat(authService.verificarCorreo(codigoCorreo(tokenTemporal(), codigo)).getStatus())
+                .isEqualTo(HttpStatus.GONE);
+    }
+
+    @Test
+    @DisplayName("Correo ya confirmado: continúa al segundo factor sin pedir código")
+    void verificarCorreo_yaConfirmado() {
+        ApiResponse<LoginResponse> r = authService.verificarCorreo(codigoCorreo(tokenTemporal(), "123456"));
+
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(r.getDatos().getSiguientePaso()).isEqualTo(PasoLogin.CONFIGURAR_A2F);
+    }
+
+    @Test
+    @DisplayName("Token temporal inválido: 401 en verificar y reenviar")
+    void correo_tokenInvalido() {
+        assertThat(authService.verificarCorreo(codigoCorreo("no-es-token", "123456")).getStatus())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(authService.reenviarCodigoCorreo(reenvio("no-es-token")).getStatus())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("Reenvío: se limita a uno por minuto")
+    void reenviar_limitado() {
+        conCorreoPendiente();
+
+        ApiResponse<LoginResponse> r = authService.reenviarCodigoCorreo(reenvio(tokenTemporal()));
+
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(r.getMensaje()).contains("60 segundos");
+    }
+
+    @Test
+    @DisplayName("Reenvío después de un minuto: genera un código nuevo")
+    void reenviar_correcto() {
+        conCorreoPendiente();
+        cliente.setCorreoUltimoEnvio(LocalDateTime.now(RELOJ).minusMinutes(2));
+
+        ApiResponse<LoginResponse> r = authService.reenviarCodigoCorreo(reenvio(tokenTemporal()));
+
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(r.getDatos().getSiguientePaso()).isEqualTo(PasoLogin.VERIFICAR_CORREO);
+    }
+
+    @Test
+    @DisplayName("Reenvío con fallo del SMTP: 503")
+    void reenviar_smtpFalla() {
+        conCorreoPendiente();
+        cliente.setCorreoUltimoEnvio(LocalDateTime.now(RELOJ).minusMinutes(2));
+        when(envioCorreo.enviarCodigo(anyString(), any(), anyString(), anyLong(), any())).thenReturn(false);
+
+        assertThat(authService.reenviarCodigoCorreo(reenvio(tokenTemporal())).getStatus())
+                .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("Reenvío con correo ya confirmado: 409 y no envía nada")
+    void reenviar_yaConfirmado() {
+        assertThat(authService.reenviarCodigoCorreo(reenvio(tokenTemporal())).getStatus())
+                .isEqualTo(HttpStatus.CONFLICT);
+        verify(envioCorreo, never()).enviarCodigo(anyString(), any(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("Cliente dado de baja no puede confirmar su correo")
+    void verificarCorreo_clienteInactivo() {
+        String codigo = conCorreoPendiente();
+        String token = tokenTemporal();
+        cliente.setActivo(false);
+
+        assertThat(authService.verificarCorreo(codigoCorreo(token, codigo)).getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(authService.reenviarCodigoCorreo(reenvio(token)).getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    // ======================== Segundo factor por correo ========================
+
+    private String codigoInicioSesionEnviado(String token) {
+        when(envioCorreo.enviarCodigo(anyString(), any(), anyString(), anyLong(), any())).thenReturn(true);
+        ApiResponse<LoginResponse> r = authService.enviarCodigoInicioSesion(reenvio(token));
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(r.getDatos().getSiguientePaso()).isEqualTo(PasoLogin.VERIFICAR_CODIGO_CORREO);
+        ArgumentCaptor<String> codigo = ArgumentCaptor.forClass(String.class);
+        verify(envioCorreo).enviarCodigo(eq("juan.perez@correo.com"), any(), codigo.capture(), eq(15L),
+                eq(PropositoCodigo.INICIO_SESION));
+        return codigo.getValue();
+    }
+
+    @Test
+    @DisplayName("Inicio de sesión con código por correo (sin app autenticadora): entrega el token de acceso")
+    void inicioSesionPorCorreo_correcto() {
+        String token = tokenTemporal();
+        String codigo = codigoInicioSesionEnviado(token);
+
+        ApiResponse<TokenResponse> r = authService.verificarCodigoInicioSesion(codigoCorreo(token, codigo));
+
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(r.getDatos().getTokenAcceso()).isNotBlank();
+        assertThat(r.getDatos().getNumeroCuenta()).isEqualTo("1234567890123456");
+        assertThat(cliente.getCorreoCodigoHash()).isNull();
+    }
+
+    @Test
+    @DisplayName("Código de inicio de sesión incorrecto: cuenta para el bloqueo por intentos")
+    void inicioSesionPorCorreo_incorrecto() {
+        String token = tokenTemporal();
+        codigoInicioSesionEnviado(token);
+
+        ApiResponse<TokenResponse> r = authService.verificarCodigoInicioSesion(codigoCorreo(token, "000000"));
+
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(cliente.getIntentosFallidos()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Código de inicio de sesión vencido: 410; sin intentos: 429")
+    void inicioSesionPorCorreo_vencidoYSinIntentos() {
+        String token = tokenTemporal();
+        String codigo = codigoInicioSesionEnviado(token);
+        cliente.setCorreoIntentos(VerificacionCorreo.MAX_INTENTOS);
+        assertThat(authService.verificarCodigoInicioSesion(codigoCorreo(token, codigo)).getStatus())
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+
+        cliente.setCorreoIntentos(0);
+        cliente.setCorreoCodigoExpira(LocalDateTime.now(RELOJ).minusSeconds(1));
+        assertThat(authService.verificarCodigoInicioSesion(codigoCorreo(token, codigo)).getStatus())
+                .isEqualTo(HttpStatus.GONE);
+    }
+
+    @Test
+    @DisplayName("El código de confirmar correo no sirve para iniciar sesión")
+    void inicioSesionPorCorreo_codigoDeConfirmacion() {
+        String codigo = conCorreoPendiente();
+        cliente.setCorreoVerificado(true);
+
+        assertThat(authService.verificarCodigoInicioSesion(codigoCorreo(tokenTemporal(), codigo)).getStatus())
+                .isEqualTo(HttpStatus.GONE);
+    }
+
+    @Test
+    @DisplayName("Inicio de sesión por correo: token inválido 401, correo sin confirmar 403, espera entre envíos 429")
+    void inicioSesionPorCorreo_rechazos() {
+        assertThat(authService.enviarCodigoInicioSesion(reenvio("no-es-token")).getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(authService.verificarCodigoInicioSesion(codigoCorreo("no-es-token", "123456")).getStatus())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        String token = tokenTemporal();
+        codigoInicioSesionEnviado(token);
+        assertThat(authService.enviarCodigoInicioSesion(reenvio(token)).getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+
+        cliente.setCorreoVerificado(false);
+        assertThat(authService.enviarCodigoInicioSesion(reenvio(token)).getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(authService.verificarCodigoInicioSesion(codigoCorreo(token, "123456")).getStatus())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("Código para autorizar una operación: se envía al correo del cliente de la sesión")
+    void codigoOperacion_enviado() {
+        when(envioCorreo.enviarCodigo(anyString(), any(), anyString(), anyLong(), any())).thenReturn(true);
+
+        ApiResponse<Void> r = authService.enviarCodigoOperacion(1);
+
+        assertThat(r.getStatus()).isEqualTo(HttpStatus.OK);
+        assertThat(cliente.getCorreoCodigoProposito()).isEqualTo(PropositoCodigo.OPERACION);
+        verify(envioCorreo).enviarCodigo(eq("juan.perez@correo.com"), any(), anyString(), eq(15L), eq(PropositoCodigo.OPERACION));
+    }
+
+    @Test
+    @DisplayName("Código para operación: cliente inexistente 401, SMTP caído 503, dado de baja 403")
+    void codigoOperacion_rechazos() {
+        assertThat(authService.enviarCodigoOperacion(99).getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        when(envioCorreo.enviarCodigo(anyString(), any(), anyString(), anyLong(), any())).thenReturn(false);
+        assertThat(authService.enviarCodigoOperacion(1).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+
+        cliente.setCorreoUltimoEnvio(null);
+        cliente.setActivo(false);
+        assertThat(authService.enviarCodigoOperacion(1).getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 }

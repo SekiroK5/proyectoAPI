@@ -29,8 +29,10 @@ public class CuentaServiceImpl implements CuentaService {
 
     @Override
     @Transactional(value = "sfTransactionManager", readOnly = true)
-    public ApiResponse<CuentaResponse> consultar(CuentaConsultaRequest request) {
+    public ApiResponse<CuentaResponse> consultar(Integer clienteId, CuentaConsultaRequest request) {
+        // Solo la cuenta propia: una ajena se responde igual que una inexistente para no revelar cuales existen
         return cuentaRepository.findByNumeroCuenta(request.getNumeroCuenta())
+                .filter(c -> c.getCliente() != null && c.getCliente().getId().equals(clienteId))
                 .map(c -> ApiResponse.exito(HttpStatus.OK, "Cuenta encontrada.", ClienteMapper.aResponse(c)))
                 .orElseGet(() -> ApiResponse.error(HttpStatus.NOT_FOUND,
                         "No existe una cuenta con el número " + request.getNumeroCuenta() + "."));

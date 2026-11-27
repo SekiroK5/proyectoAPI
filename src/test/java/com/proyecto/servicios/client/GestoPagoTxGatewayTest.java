@@ -60,12 +60,13 @@ class GestoPagoTxGatewayTest {
     private final CifradoGestoPago cifrado = new CifradoGestoPago(
             "HPo7OLqB4Fkk4E2yGOtwqw8H5fHR9kNx67OR4g4UdlA=", "p5ldmBPdd/9pjC0bDC/nSg==");
 
+    private static final Clock RELOJ = Clock.fixed(Instant.ofEpochMilli(1700000000000L), ZoneOffset.UTC);
+    private final CircuitoGestoPago circuito = new CircuitoGestoPago(RELOJ, 5, 10);
     private GestoPagoTxGateway gateway;
 
     @BeforeEach
     void setUp() throws Exception {
-        gateway = new GestoPagoTxGateway(txClient, tokenService, cifrado,
-                Clock.fixed(Instant.ofEpochMilli(1700000000000L), ZoneOffset.UTC), "");
+        gateway = new GestoPagoTxGateway(txClient, tokenService, cifrado, circuito, RELOJ, new SimuladorGestoPago(false, RELOJ), "");
     }
 
     private static FeignException error(int status) {
@@ -95,6 +96,7 @@ class GestoPagoTxGatewayTest {
     @Test
     @DisplayName("Token rechazado (403): lo renueva y reintenta una sola vez")
     void enviar_tokenRechazado_reintenta() {
+        when(tokenService.renovarToken()).thenReturn(true);
         when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("viejo"), Optional.of("nuevo"));
         when(txClient.sendTx(eq("Bearer viejo"), isNull(), anyMap())).thenThrow(error(403));
         when(txClient.sendTx(eq("Bearer nuevo"), isNull(), anyMap())).thenReturn(XML_EXITO);
@@ -132,7 +134,7 @@ class GestoPagoTxGatewayTest {
     @DisplayName("Sin llave/IV de cifrado no envía nada (enviada = false)")
     void enviar_sinCifrado() throws Exception {
         GestoPagoTxGateway sinLlaves = new GestoPagoTxGateway(txClient, tokenService, new CifradoGestoPago("", ""),
-                Clock.systemUTC(), "");
+                circuito, Clock.systemUTC(), new SimuladorGestoPago(false, Clock.systemUTC()), "");
 
         Resultado res = sinLlaves.enviar(PAYLOAD);
 
@@ -166,5 +168,103 @@ class GestoPagoTxGatewayTest {
 
         assertThat(res.codigo()).isEqualTo("06");
         assertThat(res.xml().idTransaccion()).isEqualTo("291437188");
+    }
+
+    @Test
+    @DisplayName("Lee el formato <AUTORIZACION> (código 03, carrier sin respuesta) como respuesta con código")
+    void enviar_formatoAutorizacion() {
+        when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("tokenGP"));
+        when(txClient.sendTx(any(), any(), anyMap())).thenReturn("""
+                <?xml version='1.0' encoding='UTF-8'?>
+                <AUTORIZACION>
+                    <NUM_AUTORIZACION>-1</NUM_AUTORIZACION>
+                    <CODIGO_MENSAJE>03</CODIGO_MENSAJE>
+                    <MENSAJE>Por el momento el carrier no responde, favor de intentar mas tarde.</MENSAJE>
+                </AUTORIZACION>""");
+
+        Resultado res = gateway.enviar(PAYLOAD);
+
+        assertThat(res.tieneRespuesta()).isTrue();
+        assertThat(res.codigo()).isEqualTo("03");
+        assertThat(res.xml().getNumAutorizacion()).isEqualTo("-1");
+        assertThat(res.xml().texto()).startsWith("Por el momento el carrier no responde");
+    }
+
+    @Test
+    @DisplayName("Un XML válido pero sin código se trata como resultado desconocido")
+    void enviar_xmlSinCodigo() {
+        when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("tokenGP"));
+        when(txClient.sendTx(any(), any(), anyMap())).thenReturn("<RESPONSE><NUM_AUTORIZACION>5</NUM_AUTORIZACION></RESPONSE>");
+
+        Resultado res = gateway.enviar(PAYLOAD);
+
+        assertThat(res.tieneRespuesta()).isFalse();
+        assertThat(res.enviada()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Token rechazado (403) y renovación no permitida: no reintenta con el token rechazado")
+    void enviar_tokenRechazado_sinRenovacion() {
+        when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("viejo"));
+        when(txClient.sendTx(eq("Bearer viejo"), isNull(), anyMap())).thenThrow(error(403));
+        when(tokenService.renovarToken()).thenReturn(false);
+
+        Resultado res = gateway.enviar(PAYLOAD);
+
+        assertThat(res.enviada()).isFalse();
+        verify(txClient, org.mockito.Mockito.times(1)).sendTx(any(), any(), anyMap());
+    }
+
+    @Test
+    @DisplayName("Tras 5 fallas técnicas seguidas se pausan las llamadas: la sexta no sale")
+    void circuito_pausaTrasFallas() {
+        when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("tokenGP"));
+        when(txClient.sendTx(any(), any(), anyMap())).thenReturn("<html>caido</html>");
+
+        for (int i = 0; i < 5; i++) {
+            assertThat(gateway.enviar(PAYLOAD).enviada()).isTrue();
+        }
+        Resultado sexta = gateway.enviar(PAYLOAD);
+
+        assertThat(sexta.enviada()).isFalse();
+        verify(txClient, org.mockito.Mockito.times(5)).sendTx(any(), any(), anyMap());
+    }
+
+    @Test
+    @DisplayName("Un rechazo de negocio (código distinto de 01) no cuenta como falla para la pausa")
+    void circuito_rechazoNoEsFalla() {
+        when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("tokenGP"));
+        when(txClient.sendTx(any(), any(), anyMap())).thenReturn(
+                "<RESPONSE><MENSAJE><CODIGO>02</CODIGO><TEXTO>Saldo insuficiente</TEXTO></MENSAJE></RESPONSE>");
+
+        for (int i = 0; i < 7; i++) {
+            assertThat(gateway.enviar(PAYLOAD).codigo()).isEqualTo("02");
+        }
+        assertThat(circuito.permite()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Modo simulación: responde sin llamar a GestoPago y con el mismo formato XML")
+    void simulacion_noLlamaAGestoPago() throws Exception {
+        GestoPagoTxGateway simulado = new GestoPagoTxGateway(txClient, tokenService, cifrado, circuito, RELOJ,
+                new SimuladorGestoPago(true, RELOJ), "");
+
+        Resultado exito = simulado.enviar("{\"telefono\":\"5512345678\",\"upc\":\"ABC\"}");
+        Resultado rechazo = simulado.enviar("{\"telefono\":\"5512345670\"}");
+        Resultado pendiente = simulado.enviar("{\"telefono\":\"1111111111\",\"referencia\":\"REF9\",\"montoPago\":601.99}");
+        Resultado confirmada = simulado.confirmar("{}");
+        Resultado valida = simulado.verificarReferencia("{\"referencia\":\"ABC123\"}");
+        Resultado invalida = simulado.verificarReferencia("{\"referencia\":\"ABC120\"}");
+
+        assertThat(exito.codigo()).isEqualTo("01");
+        assertThat(exito.xml().getNumAutorizacion()).isNotBlank();
+        assertThat(rechazo.codigo()).isEqualTo("70");
+        assertThat(pendiente.codigo()).isEqualTo("82");
+        assertThat(confirmada.codigo()).isEqualTo("06");
+        assertThat(valida.codigo()).isEqualTo("01");
+        assertThat(valida.xml().getMensaje().getSaldo()).isNotBlank();
+        assertThat(invalida.codigo()).isEqualTo("02");
+        verify(txClient, never()).sendTx(any(), any(), anyMap());
+        verify(tokenService, never()).obtenerTokenVigente();
     }
 }

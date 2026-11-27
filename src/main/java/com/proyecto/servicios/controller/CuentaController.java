@@ -42,11 +42,13 @@ public class CuentaController {
         this.depositoHandler = depositoHandler;
     }
 
-    @Operation(summary = "Consultar cuenta y saldo", description = "Busca la cuenta por su número. Respuestas: 200, 400, 404.")
+    @Operation(summary = "Consultar mi cuenta y saldo",
+            description = "Devuelve la cuenta indicada solo si pertenece al cliente de la sesión. Respuestas: 200, 400, 401, 404 (inexistente o ajena).")
     @PostMapping(value = "/consulta", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<ApiResponse<CuentaResponse>> consultar(@Valid @RequestBody CuentaConsultaRequest request) {
+    public ResponseEntity<ApiResponse<CuentaResponse>> consultar(@Valid @RequestBody CuentaConsultaRequest request,
+                                                                 @AuthenticationPrincipal Jwt sesion) {
         log.info("POST /api/v1/cuentas/consulta");
-        ApiResponse<CuentaResponse> respuesta = cuentaService.consultar(request);
+        ApiResponse<CuentaResponse> respuesta = cuentaService.consultar(Integer.valueOf(sesion.getSubject()), request);
         return ResponseEntity.status(respuesta.getStatus()).body(respuesta);
     }
 

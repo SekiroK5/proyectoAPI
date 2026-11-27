@@ -39,6 +39,7 @@ class CuentaServiceImplTest {
 
     private static Cuenta cuenta() {
         Cliente cliente = new Cliente();
+        cliente.setId(7);
         cliente.setNombre("Ana");
         cliente.setApellidoPaterno("Ruiz");
         cliente.setApellidoMaterno("Díaz");
@@ -63,7 +64,7 @@ class CuentaServiceImplTest {
     void consultar_existente() {
         when(cuentaRepository.findByNumeroCuenta("1234567890123456")).thenReturn(Optional.of(cuenta()));
 
-        CuentaResponse res = cuentaService.consultar(consulta("1234567890123456")).getDatos();
+        CuentaResponse res = cuentaService.consultar(7, consulta("1234567890123456")).getDatos();
 
         assertThat(res.getSaldo()).isEqualByComparingTo("150.50");
         assertThat(res.getNombreCliente()).isEqualTo("Ana Ruiz Díaz");
@@ -75,11 +76,22 @@ class CuentaServiceImplTest {
     void consultar_inexistente() {
         when(cuentaRepository.findByNumeroCuenta("0000000000000000")).thenReturn(Optional.empty());
 
-        ApiResponse<CuentaResponse> res = cuentaService.consultar(consulta("0000000000000000"));
+        ApiResponse<CuentaResponse> res = cuentaService.consultar(7, consulta("0000000000000000"));
 
         assertThat(res.getCodigo()).isEqualTo(ApiResponse.ERROR);
         assertThat(res.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(res.getMensaje()).contains("0000000000000000");
+    }
+
+    @Test
+    @DisplayName("Cuenta de otro cliente -> 404, igual que si no existiera")
+    void consultar_ajena() {
+        when(cuentaRepository.findByNumeroCuenta("1234567890123456")).thenReturn(Optional.of(cuenta()));
+
+        ApiResponse<CuentaResponse> res = cuentaService.consultar(99, consulta("1234567890123456"));
+
+        assertThat(res.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(res.getDatos()).isNull();
     }
 
     @Test

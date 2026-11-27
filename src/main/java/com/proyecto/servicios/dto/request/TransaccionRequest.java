@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -61,6 +62,11 @@ public class TransaccionRequest {
     @Pattern(regexp = "^[A-Za-z0-9-]{1,100}$", message = "La referencia debe tener de 1 a 100 caracteres (letras, números o '-').")
     private String referencia;
 
+    @Schema(description = "Pago de servicios: folio devuelto por POST /api/v1/referencias/verificacion (vigente 15 min, un solo uso)",
+            example = "3f0c2b1e-8a4d-4c55-9b0e-2d7f1a6c9e10")
+    @Size(max = 36, message = "El folio de verificación no es válido.")
+    private String folioVerificacion;
+
     @Schema(description = "Código de 6 dígitos de la app autenticadora (también se acepta como \"2fa\")", example = "123456")
     @NotEmpty(message = "El código 2FA es obligatorio.")
     @Pattern(regexp = CODIGO_A2F, message = "El código 2FA debe contener exactamente 6 dígitos.")
@@ -77,6 +83,10 @@ public class TransaccionRequest {
 
     public void setReferencia(String referencia) {
         this.referencia = Texto.limpiar(referencia);
+    }
+
+    public void setFolioVerificacion(String folioVerificacion) {
+        this.folioVerificacion = Texto.limpiar(folioVerificacion);
     }
 
     public void setCodigoA2F(String codigoA2F) {

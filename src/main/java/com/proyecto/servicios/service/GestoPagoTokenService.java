@@ -10,8 +10,13 @@ import java.util.Optional;
  */
 public interface GestoPagoTokenService {
 
-    /** Fuerza la obtencion de un token nuevo (por ejemplo, cuando GestoPago responde 401/403). */
-    void renovarToken();
+    /**
+     * Pide un token nuevo (por ejemplo, cuando GestoPago responde 401/403). Como maximo un intento cada
+     * {@code gestopago.auth.intervalo-minimo-minutos}, y nunca mientras las llamadas esten en pausa.
+     *
+     * @return true si se obtuvo y guardo un token nuevo
+     */
+    boolean renovarToken();
 
     /** Renueva el token solo si no existe o ya cumplio su vigencia. Lo ejecuta el scheduler. */
     void renovarSiVence();

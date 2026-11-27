@@ -24,6 +24,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Emite y valida los JWT firmados con HS256. Hay dos tipos que nunca son intercambiables:
@@ -103,6 +104,8 @@ public class TokenJwt {
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(emisor)
                 .subject(String.valueOf(clienteId))
+                // jti: identificador unico, permite revocar el token al cerrar sesion
+                .id(UUID.randomUUID().toString())
                 .issuedAt(ahora)
                 .expiresAt(ahora.plus(vigencia))
                 .claim(CLAIM_TIPO, tipo)

@@ -16,6 +16,8 @@ import com.proyecto.servicios.enums.Catalogos.MetodoA2F;
 import com.proyecto.servicios.enums.Catalogos.PasoLogin;
 import com.proyecto.servicios.seguridad.TokenJwt;
 import com.proyecto.servicios.service.AuthService;
+import com.proyecto.servicios.service.TransaccionService;
+import com.proyecto.servicios.seguridad.SesionesRevocadas;
 import com.proyecto.servicios.service.ClienteService;
 import com.proyecto.servicios.service.CuentaService;
 import org.junit.jupiter.api.DisplayName;
@@ -38,7 +40,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -70,6 +74,12 @@ class SeguridadConfigTest {
 
     @MockBean
     private DepositoHandler depositoHandler;
+
+    @MockBean
+    private TransaccionService transaccionService;
+
+    @MockBean
+    private SesionesRevocadas sesionesRevocadas;
 
     private void listarDevuelvePaginaVacia() {
         when(clienteService.listar()).thenReturn(ApiResponse.exito(HttpStatus.OK, "ok",
@@ -186,5 +196,42 @@ class SeguridadConfigTest {
         verify(depositoHandler).handle(comando.capture());
         assertThat(comando.getValue().clienteId()).isEqualTo(9);
         assertThat(comando.getValue().request().getCodigoA2F()).isEqualTo("123456");
+    }
+
+    @Test
+    @DisplayName("Logout revoca el token y después ese mismo token ya no sirve (401)")
+    void logout_revocaElToken() throws Exception {
+        String token = tokenJwt.emitirAcceso(7, "juanperez95");
+
+        mockMvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mensaje").value("Sesión cerrada correctamente."));
+        ArgumentCaptor<String> jti = ArgumentCaptor.forClass(String.class);
+        verify(sesionesRevocadas).revocar(jti.capture(), any());
+        assertThat(jti.getValue()).isNotBlank();
+
+        when(sesionesRevocadas.estaRevocado(jti.getValue())).thenReturn(true);
+        mockMvc.perform(get("/api/v1/clientes").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Logout sin token: 401")
+    void logout_sinToken() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/logout")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("CORS: la app web configurada puede llamar a la API; otro origen no")
+    void cors() throws Exception {
+        mockMvc.perform(options("/api/v1/auth/login")
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+        mockMvc.perform(options("/api/v1/auth/login")
+                        .header("Origin", "https://sitio-ajeno.com")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden());
     }
 }

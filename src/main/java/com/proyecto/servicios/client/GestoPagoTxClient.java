@@ -37,4 +37,15 @@ public interface GestoPagoTxClient {
     String confirmTx(@RequestHeader("Authorization") String authorization,
                      @RequestHeader(value = "X-API-Key", required = false) String apiKey,
                      @RequestBody Map<String, ?> formulario);
+
+    /**
+     * Verifica una referencia antes de pagar un servicio. Solo existe para productos tipoFront 4.
+     * Responde MENSAJE/CODIGO (01 = valida) y, si aplica, MENSAJE/SALDO con el adeudo pendiente.
+     */
+    @PostMapping(value = "/sistema/service/verifyReference.do",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+            headers = "Accept=text/xml, application/xml, */*")
+    String verifyReference(@RequestHeader("Authorization") String authorization,
+                           @RequestHeader(value = "X-API-Key", required = false) String apiKey,
+                           @RequestBody Map<String, ?> formulario);
 }

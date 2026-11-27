@@ -73,6 +73,14 @@ public class Transaccion {
     @Column(name = "pin", length = 250)
     private String pin;
 
+    /** Veces que se ha llamado a confirmTx para esta transaccion. */
+    @Column(name = "intentos_confirmacion", nullable = false)
+    private Integer intentosConfirmacion = 0;
+
+    /** No se llama a confirmTx antes de esta fecha (reintentos espaciados). */
+    @Column(name = "proxima_confirmacion")
+    private LocalDateTime proximaConfirmacion;
+
     @Column(name = "fecha_creacion", nullable = false, updatable = false)
     private LocalDateTime fechaCreacion;
 
