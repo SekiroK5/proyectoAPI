@@ -17,9 +17,9 @@ import java.util.Base64;
  *   <li>Al descifrar usa UTF-8 explicito en lugar del charset por defecto del sistema.</li>
  * </ul>
  */
-// java:S3329 y java:S5542: PuntoRed define el protocolo con AES/CBC/PKCS5Padding y un IV fijo que entrega
+// java:S3329, java:S5542 y java:S6432: PuntoRed define el protocolo con AES/CBC/PKCS5Padding y un IV fijo que entrega
 // junto con la llave; un IV aleatorio u otro modo haria que GestoPago no pudiera descifrar las peticiones.
-@SuppressWarnings({"java:S3329", "java:S5542"})
+@SuppressWarnings({"java:S3329", "java:S5542", "java:S6432"})
 public final class AesEncryption {
 
     private AesEncryption() {
