@@ -273,7 +273,7 @@ legend { font-weight: 650; padding: 0; margin-bottom: .75rem; font-size: 1.05rem
 .ayuda img { max-width: 100%; border-radius: 10px; margin-top: .5rem; border: 1px solid var(--borde); }
 .lista-datos { display: grid; grid-template-columns: minmax(130px, 40%) 1fr; gap: .65rem 1rem; margin: 0; }
 .lista-datos dt { color: var(--tenue); }
-.lista-datos dd { margin: 0; font-weight: 550; word-break: break-word; }
+.lista-datos dd { margin: 0; font-weight: 550; overflow-wrap: anywhere; }
 .importe { font-weight: 750; }
 .importe.grande { font-size: clamp(1.8rem, 1.4rem + 2vw, 2.4rem); letter-spacing: -0.02em; }
 .resumen-total { display: flex; justify-content: space-between; align-items: baseline; padding: 1rem; border-radius: var(--radio-chico); background: var(--superficie-2); }
@@ -307,7 +307,7 @@ legend { font-weight: 650; padding: 0; margin-bottom: .75rem; font-size: 1.05rem
 .tarjeta-bancaria .etiqueta { opacity: .85; font-size: .85rem; }
 .tarjeta-bancaria .numero { font-family: ui-monospace, Consolas, monospace; font-size: 1.15rem; letter-spacing: .08em; display: flex; align-items: center; gap: .5rem; }
 .tarjeta-bancaria .boton-icono { color: #fff; }
-.tarjeta-bancaria .boton-icono:hover { background: rgb(255 255 255 / 15%); color: #fff; }
+.tarjeta-bancaria .boton-icono:hover { background: rgb(0 0 0 / 25%); color: #fff; }
 .montos-rapidos { display: flex; flex-wrap: wrap; gap: .45rem; }
 
 /* ---------- Responsivo ---------- */
@@ -352,3 +352,8 @@ legend { font-weight: 650; padding: 0; margin-bottom: .75rem; font-size: 1.05rem
 .segmentos button:disabled { cursor: not-allowed; }
 .enlace-boton { font: inherit; font-size: .85rem; color: var(--primario); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; align-self: flex-start; }
 .enlace-boton:disabled { color: var(--tenue); cursor: not-allowed; text-decoration: none; }
+
+/* <output> se usa como contenedor de avisos y estados: se comporta como un bloque */
+output.aviso, output.cargando { width: 100%; }
+output.aviso { display: flex; }
+fieldset.segmentos { border: 1px solid var(--borde); margin: 0; min-width: 0; }

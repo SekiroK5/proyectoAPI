@@ -41,10 +41,10 @@ class CifradoGestoPagoTest {
     }
 
     @Test
-    @DisplayName("El snippet AesEncryption.AESCipher produce el mismo vector de la documentación")
+    @DisplayName("El snippet AesEncryption.aesCipher produce el mismo vector de la documentación")
     void snippet_vectorDocumentacion() {
-        assertThat(AesEncryption.AESCipher(AesEncryption.Mode.ENCRYPT, PAYLOAD_DOC, IV, LLAVE)).isEqualTo(ESPERADO_DOC);
-        assertThat(AesEncryption.AESCipher(AesEncryption.Mode.DECRYPT, ESPERADO_DOC, IV, LLAVE)).isEqualTo(PAYLOAD_DOC);
+        assertThat(AesEncryption.aesCipher(AesEncryption.Mode.ENCRYPT, PAYLOAD_DOC, IV, LLAVE)).isEqualTo(ESPERADO_DOC);
+        assertThat(AesEncryption.aesCipher(AesEncryption.Mode.DECRYPT, ESPERADO_DOC, IV, LLAVE)).isEqualTo(PAYLOAD_DOC);
     }
 
     @Test

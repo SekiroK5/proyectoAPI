@@ -23,6 +23,9 @@ import java.util.Optional;
 @Slf4j
 public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
 
+    /** Nombre de la operacion para el circuito de fallas de GestoPago. */
+    private static final String OPERACION_AUTENTICAR = "authenticate";
+
     private final GestoPagoAuthClient gestoPagoAuthClient;
     private final GestoPagoTokenRepository tokenRepository;
     private final GestoPagoTokenMapper tokenMapper;
@@ -113,7 +116,7 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
 
             if (response == null || response.getToken() == null) {
                 log.error("La respuesta de GestoPago no contiene token");
-                circuito.registrarFalla("authenticate");
+                circuito.registrarFalla(OPERACION_AUTENTICAR);
                 return false;
             }
 
@@ -139,11 +142,11 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
         } catch (FeignException e) {
             // Solo el codigo HTTP: el mensaje de Feign incluye la URL con las credenciales
             log.error("Error al renovar token GestoPago: HTTP {}", e.status());
-            circuito.registrarFalla("authenticate");
+            circuito.registrarFalla(OPERACION_AUTENTICAR);
             return false;
         } catch (RuntimeException e) {
             log.error("Error al renovar token GestoPago: {}", e.getClass().getSimpleName());
-            circuito.registrarFalla("authenticate");
+            circuito.registrarFalla(OPERACION_AUTENTICAR);
             return false;
         }
     }

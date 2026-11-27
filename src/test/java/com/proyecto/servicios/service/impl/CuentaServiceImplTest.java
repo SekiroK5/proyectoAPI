@@ -78,7 +78,7 @@ class CuentaServiceImplTest {
 
         ApiResponse<CuentaResponse> res = cuentaService.consultar(7, consulta("0000000000000000"));
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.ERROR);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_ERROR);
         assertThat(res.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(res.getMensaje()).contains("0000000000000000");
     }

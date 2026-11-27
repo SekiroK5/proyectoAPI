@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HexFormat;
 
 /**
@@ -66,7 +67,8 @@ public class VerificacionCorreo {
         if (cliente.getCorreoUltimoEnvio() == null) {
             return 0;
         }
-        long transcurridos = Duration.between(cliente.getCorreoUltimoEnvio(), LocalDateTime.now(clock)).getSeconds();
+        ZoneId zona = clock.getZone();
+        long transcurridos = Duration.between(cliente.getCorreoUltimoEnvio().atZone(zona), LocalDateTime.now(clock).atZone(zona)).getSeconds();
         return Math.max(0, SEGUNDOS_ENTRE_ENVIOS - transcurridos);
     }
 

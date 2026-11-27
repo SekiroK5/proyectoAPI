@@ -122,14 +122,7 @@ public class GestoPagoTxGateway {
             return Resultado.noEnviada(ex.getMessage());
         }
         try {
-            String cuerpo;
-            try {
-                cuerpo = llamada.apply(formulario);
-            } catch (FeignException.Unauthorized | FeignException.Forbidden ex) {
-                // 401/403 significa que GestoPago rechazo el token sin procesar la operacion: es seguro reintentar
-                log.warn("GestoPago {} rechazo el token ({}). Se renueva y se reintenta una vez", metodo, ex.status());
-                cuerpo = reintentoConTokenNuevo.apply(formulario);
-            }
+            String cuerpo = llamarConReintentoDeToken(metodo, formulario, llamada, reintentoConTokenNuevo);
             Resultado resultado = interpretar(metodo, cuerpo);
             // Una respuesta legible (aunque sea un rechazo de negocio) significa que GestoPago funciona
             if (resultado.tieneRespuesta()) {
@@ -151,6 +144,18 @@ public class GestoPagoTxGateway {
             log.error("Sin respuesta de GestoPago {}: {}", metodo, ex.getMessage());
             circuito.registrarFalla(metodo);
             return Resultado.sinRespuesta(null, "Sin respuesta de GestoPago: " + ex.getClass().getSimpleName());
+        }
+    }
+
+    /** 401/403 significa que GestoPago rechazo el token sin procesar la operacion: es seguro reintentar una vez. */
+    private String llamarConReintentoDeToken(String metodo, Map<String, String> formulario,
+                                             Function<Map<String, String>, String> llamada,
+                                             Function<Map<String, String>, String> reintentoConTokenNuevo) {
+        try {
+            return llamada.apply(formulario);
+        } catch (FeignException.Unauthorized | FeignException.Forbidden ex) {
+            log.warn("GestoPago {} rechazo el token ({}). Se renueva y se reintenta una vez", metodo, ex.status());
+            return reintentoConTokenNuevo.apply(formulario);
         }
     }
 

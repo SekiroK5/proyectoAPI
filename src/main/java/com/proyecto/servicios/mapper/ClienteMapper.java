@@ -106,8 +106,11 @@ public final class ClienteMapper {
         }
     }
 
-    /** null = campo omitido (sin cambio); Optional.empty() = null explicito (se borra). */
-    @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
+    /**
+     * null = campo omitido (sin cambio); Optional.empty() = null explicito (se borra). El null-check del Optional
+     * es intencional (java:S2789): distingue "no se envio" de "se envio vacio" en la actualizacion parcial.
+     */
+    @SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "java:S2789"})
     private static void siVieneOpcional(Optional<String> valor, Consumer<String> asignar) {
         if (valor != null) {
             asignar.accept(valor.map(Texto::limpiar).orElse(null));

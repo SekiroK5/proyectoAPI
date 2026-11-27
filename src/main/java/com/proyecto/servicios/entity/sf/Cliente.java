@@ -11,6 +11,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.LocalDateTime;
 
 @Entity
@@ -140,8 +141,8 @@ public class Cliente {
 
     @PrePersist
     void onCreate() {
-        this.fechaCreacion = LocalDateTime.now();
-        this.fechaActualizacion = LocalDateTime.now();
+        this.fechaCreacion = LocalDateTime.now(ZoneId.systemDefault());
+        this.fechaActualizacion = LocalDateTime.now(ZoneId.systemDefault());
         if (this.activo == null) {
             this.activo = true;
         }
@@ -149,6 +150,6 @@ public class Cliente {
 
     @PreUpdate
     void onUpdate() {
-        this.fechaActualizacion = LocalDateTime.now();
+        this.fechaActualizacion = LocalDateTime.now(ZoneId.systemDefault());
     }
 }

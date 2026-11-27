@@ -35,7 +35,7 @@ import java.util.List;
  * {@code Authorization: Bearer <token>}. El token temporal del paso A2F no sirve aqui.
  * <p>
  * Publicos: alta de clientes, inicio de sesion, catalogo de productos, Swagger y health.
- * Todo lo demas exige sesion iniciada.
+ * El resto de los endpoints exige sesion iniciada.
  */
 @Configuration
 public class SeguridadConfig {
@@ -46,6 +46,9 @@ public class SeguridadConfig {
     static final String MSG_SIN_SESION = "Se requiere iniciar sesión. Envíe el token de acceso en el encabezado Authorization: Bearer <token>.";
     static final String MSG_SIN_PERMISO = "No tiene permiso para realizar esta operación.";
 
+    // java:S4502: la API es stateless y el JWT viaja en el encabezado Authorization (no en cookies), por lo que
+    // un sitio ajeno no puede enviarlo automaticamente; la proteccion CSRF no aplica.
+    @SuppressWarnings("java:S4502")
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
         http
@@ -114,7 +117,7 @@ public class SeguridadConfig {
     private static void escribir(HttpServletResponse res, ObjectMapper objectMapper, HttpStatus status, String mensaje)
             throws IOException {
         GenericResponse cuerpo = new GenericResponse();
-        cuerpo.setCodigo(ApiResponse.ERROR);
+        cuerpo.setCodigo(ApiResponse.CODIGO_ERROR);
         cuerpo.setMensaje(mensaje);
         res.setStatus(status.value());
         res.setContentType(MediaType.APPLICATION_JSON_VALUE);

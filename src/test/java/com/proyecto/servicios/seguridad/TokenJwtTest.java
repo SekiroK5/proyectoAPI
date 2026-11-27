@@ -3,6 +3,7 @@ package com.proyecto.servicios.seguridad;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 
 import java.time.Clock;
@@ -32,7 +33,8 @@ class TokenJwtTest {
     void temporal_noEsAcceso() {
         String temporal = tokenJwt.emitirA2F(7, "juanperez95");
 
-        assertThatThrownBy(() -> tokenJwt.decoderAcceso().decode(temporal)).isInstanceOf(JwtException.class);
+        JwtDecoder decoder = tokenJwt.decoderAcceso();
+        assertThatThrownBy(() -> decoder.decode(temporal)).isInstanceOf(JwtException.class);
         assertThat(tokenJwt.validarA2F(temporal)).contains(7);
     }
 
@@ -49,13 +51,16 @@ class TokenJwtTest {
 
         assertThat(tokenJwt.validarA2F(otro.emitirA2F(7, "juanperez95"))).isEmpty();
         assertThat(tokenJwt.validarA2F("no-es-un-jwt")).isEmpty();
-        assertThatThrownBy(() -> tokenJwt.decoderAcceso().decode(otro.emitirAcceso(7, "x"))).isInstanceOf(JwtException.class);
+        JwtDecoder decoder = tokenJwt.decoderAcceso();
+        String ajeno = otro.emitirAcceso(7, "x");
+        assertThatThrownBy(() -> decoder.decode(ajeno)).isInstanceOf(JwtException.class);
     }
 
     @Test
     @DisplayName("Exige un secreto de al menos 32 bytes")
     void secretoCorto() {
-        assertThatThrownBy(() -> new TokenJwt("corto", "productosList", 30, 5, Clock.systemUTC()))
+        Clock reloj = Clock.systemUTC();
+        assertThatThrownBy(() -> new TokenJwt("corto", "productosList", 30, 5, reloj))
                 .isInstanceOf(IllegalStateException.class);
     }
 }

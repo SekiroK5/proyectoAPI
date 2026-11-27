@@ -52,6 +52,8 @@ public class DomicilioUpdateRequest {
     @Pattern(regexp = ValidacionPatrones.SOLO_LETRAS, message = "El país solo puede contener letras y espacios.")
     private String pais;
 
+    // java:S2789: null = campo omitido y Optional.empty() = borrar el valor (actualizacion parcial)
+    @SuppressWarnings("java:S2789")
     @JsonIgnore
     public boolean tieneCambios() {
         return numeroInterior != null

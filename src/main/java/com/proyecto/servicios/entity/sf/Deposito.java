@@ -7,6 +7,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "depositos")
@@ -34,6 +35,6 @@ public class Deposito {
 
     @PrePersist
     void onCreate() {
-        this.fechaCreacion = LocalDateTime.now();
+        this.fechaCreacion = LocalDateTime.now(ZoneId.systemDefault());
     }
 }

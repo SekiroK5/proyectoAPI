@@ -8,7 +8,6 @@ import com.proyecto.servicios.dto.response.PaginaResponse;
 
 public interface CuentaService {
 
-    /** Consulta una cuenta y su saldo disponible; codigo 1 (404) si no existe. */
     /** Cuenta del cliente de la sesion; una cuenta ajena se responde como inexistente (404). */
     ApiResponse<CuentaResponse> consultar(Integer clienteId, CuentaConsultaRequest request);
 

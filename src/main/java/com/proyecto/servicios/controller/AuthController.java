@@ -59,7 +59,7 @@ public class AuthController {
         log.info("POST /api/v1/auth/logout");
         sesionesRevocadas.revocar(sesion.getId(), sesion.getExpiresAt());
         GenericResponse respuesta = new GenericResponse();
-        respuesta.setCodigo(ApiResponse.EXITO);
+        respuesta.setCodigo(ApiResponse.CODIGO_EXITO);
         respuesta.setMensaje("Sesión cerrada correctamente.");
         return ResponseEntity.ok(respuesta);
     }

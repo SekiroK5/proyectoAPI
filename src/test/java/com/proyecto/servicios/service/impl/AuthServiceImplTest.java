@@ -133,7 +133,7 @@ class AuthServiceImplTest {
     }
 
     private static void esError(ApiResponse<?> res, HttpStatus status, String mensaje) {
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.ERROR);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_ERROR);
         assertThat(res.getStatus()).isEqualTo(status);
         assertThat(res.getMensaje()).isEqualTo(mensaje);
         assertThat(res.getDatos()).isNull();
@@ -146,7 +146,7 @@ class AuthServiceImplTest {
     void login_sinA2F_pideConfigurar() {
         ApiResponse<LoginResponse> res = authService.iniciarSesion(login(USUARIO, CONTRASENA));
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.EXITO);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_EXITO);
         assertThat(res.getStatus()).isEqualTo(HttpStatus.OK);
         assertThat(res.getDatos().getSiguientePaso()).isEqualTo(PasoLogin.CONFIGURAR_A2F);
         assertThat(res.getDatos().getExpiraEnSegundos()).isEqualTo(300);
@@ -169,7 +169,7 @@ class AuthServiceImplTest {
                 .thenReturn(Optional.of(cliente));
 
         assertThat(authService.iniciarSesion(login("Juan.Perez@Correo.com", CONTRASENA)).getCodigo())
-                .isEqualTo(ApiResponse.EXITO);
+                .isEqualTo(ApiResponse.CODIGO_EXITO);
     }
 
     @Test
@@ -207,7 +207,7 @@ class AuthServiceImplTest {
         cliente.setBloqueadoHasta(LocalDateTime.now(RELOJ).minusMinutes(1));
         cliente.setIntentosFallidos(2);
 
-        assertThat(authService.iniciarSesion(login(USUARIO, CONTRASENA)).getCodigo()).isEqualTo(ApiResponse.EXITO);
+        assertThat(authService.iniciarSesion(login(USUARIO, CONTRASENA)).getCodigo()).isEqualTo(ApiResponse.CODIGO_EXITO);
         assertThat(cliente.getIntentosFallidos()).isZero();
         assertThat(cliente.getBloqueadoHasta()).isNull();
     }
@@ -227,7 +227,7 @@ class AuthServiceImplTest {
     void configurar_generaSecreto() {
         ApiResponse<A2fConfiguracionResponse> res = authService.configurarA2F(configuracion(tokenTemporal()));
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.EXITO);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_EXITO);
         assertThat(res.getDatos().getSecreto()).isEqualTo(cliente.getA2fSecreto()).hasSize(32);
         assertThat(res.getDatos().getUriOtpauth()).startsWith("otpauth://totp/productosList:juanperez95?secret=");
         assertThat(cliente.getA2fMetodo()).isEqualTo(MetodoA2F.TOTP);
@@ -260,7 +260,7 @@ class AuthServiceImplTest {
 
         ApiResponse<TokenResponse> res = authService.verificarA2F(verificacion(token, codigoActual()));
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.EXITO);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_EXITO);
         assertThat(res.getMensaje()).contains("activado");
         assertThat(cliente.getA2fActivo()).isTrue();
         assertThat(res.getDatos().getTipoToken()).isEqualTo("Bearer");
@@ -275,7 +275,7 @@ class AuthServiceImplTest {
 
         ApiResponse<TokenResponse> res = authService.verificarA2F(verificacion(tokenTemporal(), codigoActual()));
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.EXITO);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_EXITO);
         assertThat(res.getMensaje()).isEqualTo("Sesión iniciada correctamente.");
     }
 

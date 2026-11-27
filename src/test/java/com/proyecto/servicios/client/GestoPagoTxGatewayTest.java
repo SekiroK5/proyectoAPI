@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -80,7 +81,7 @@ class GestoPagoTxGatewayTest {
     @SuppressWarnings("unchecked")
     void enviar_exito() {
         when(tokenService.obtenerTokenVigente()).thenReturn(Optional.of("tokenGP"));
-        ArgumentCaptor<Map<String, ?>> formulario = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<Map<String, String>> formulario = ArgumentCaptor.forClass(Map.class);
         when(txClient.sendTx(eq("Bearer tokenGP"), isNull(), formulario.capture())).thenReturn(XML_EXITO);
 
         Resultado res = gateway.enviar(PAYLOAD);
@@ -89,8 +90,8 @@ class GestoPagoTxGatewayTest {
         assertThat(res.codigo()).isEqualTo("01");
         assertThat(res.xml().idTransaccion()).isEqualTo("291437188");
         assertThat(res.xml().getNumAutorizacion()).isEqualTo("100024988");
-        assertThat(formulario.getValue().get("random")).isEqualTo("1700000000000");
-        assertThat(cifrado.descifrar((String) formulario.getValue().get("signed"))).isEqualTo(PAYLOAD);
+        assertThat(formulario.getValue()).containsEntry("random", "1700000000000");
+        assertThat(cifrado.descifrar(formulario.getValue().get("signed"))).isEqualTo(PAYLOAD);
     }
 
     @Test
@@ -212,7 +213,7 @@ class GestoPagoTxGatewayTest {
         Resultado res = gateway.enviar(PAYLOAD);
 
         assertThat(res.enviada()).isFalse();
-        verify(txClient, org.mockito.Mockito.times(1)).sendTx(any(), any(), anyMap());
+        verify(txClient, times(1)).sendTx(any(), any(), anyMap());
     }
 
     @Test
@@ -227,7 +228,7 @@ class GestoPagoTxGatewayTest {
         Resultado sexta = gateway.enviar(PAYLOAD);
 
         assertThat(sexta.enviada()).isFalse();
-        verify(txClient, org.mockito.Mockito.times(5)).sendTx(any(), any(), anyMap());
+        verify(txClient, times(5)).sendTx(any(), any(), anyMap());
     }
 
     @Test

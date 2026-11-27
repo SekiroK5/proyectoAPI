@@ -45,7 +45,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -144,7 +143,7 @@ class ClienteServiceImplTest {
     }
 
     private static void esError(ApiResponse<?> res, HttpStatus status, String mensaje) {
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.ERROR);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_ERROR);
         assertThat(res.getStatus()).isEqualTo(status);
         assertThat(res.getMensaje()).isEqualTo(mensaje);
         assertThat(res.getDatos()).isNull();
@@ -164,7 +163,7 @@ class ClienteServiceImplTest {
 
         ApiResponse<ClienteResponse> res = clienteService.registrar(altaValida());
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.EXITO);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_EXITO);
         assertThat(res.getStatus()).isEqualTo(HttpStatus.CREATED);
         assertThat(res.getDatos().getId()).isEqualTo(1);
         assertThat(res.getDatos().getActivo()).isTrue();
@@ -202,7 +201,8 @@ class ClienteServiceImplTest {
     @Test
     @DisplayName("No arranca si el saldo inicial configurado es negativo")
     void saldoInicialNegativo() {
-        assertThatThrownBy(() -> new ClienteServiceImpl(clienteRepository, cuentaRepository, passwordEncoder, verificacionCorreo, new BigDecimal("-1")))
+        BigDecimal negativo = new BigDecimal("-1");
+        assertThatThrownBy(() -> new ClienteServiceImpl(clienteRepository, cuentaRepository, passwordEncoder, verificacionCorreo, negativo))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -252,7 +252,7 @@ class ClienteServiceImplTest {
 
         ApiResponse<ClienteResponse> res = clienteService.consultar(req);
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.EXITO);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_EXITO);
         assertThat(res.getDatos().getNumeroCuenta()).isEqualTo("1234567890123456");
     }
 
@@ -357,7 +357,7 @@ class ClienteServiceImplTest {
     @DisplayName("Rechaza un nuevo correo que ya usa otro cliente -> codigo 1, 409")
     void actualizar_nuevoCorreoDuplicado() {
         existe(clienteExistente(true));
-        when(clienteRepository.existsByCorreoElectronicoAndIdNot(eq("otro@correo.com"), eq(1))).thenReturn(true);
+        when(clienteRepository.existsByCorreoElectronicoAndIdNot("otro@correo.com", 1)).thenReturn(true);
         ClienteUpdateRequest req = actualizacion();
         req.setNuevoCorreoElectronico("otro@correo.com");
 
@@ -384,7 +384,7 @@ class ClienteServiceImplTest {
 
         ApiResponse<ClienteResponse> res = clienteService.actualizar(req);
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.ERROR);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_ERROR);
         assertThat(res.getStatus()).isEqualTo(HttpStatus.CONFLICT);
         verify(clienteRepository, never()).saveAndFlush(any());
     }
@@ -413,7 +413,7 @@ class ClienteServiceImplTest {
 
         ApiResponse<ClienteResponse> res = clienteService.eliminar(eliminacion());
 
-        assertThat(res.getCodigo()).isEqualTo(ApiResponse.EXITO);
+        assertThat(res.getCodigo()).isEqualTo(ApiResponse.CODIGO_EXITO);
         assertThat(res.getDatos().getActivo()).isFalse();
         assertThat(res.getDatos().getEstatusCuenta()).isEqualTo(EstatusCuenta.INACTIVA);
         verify(clienteRepository, never()).delete(any(Cliente.class));

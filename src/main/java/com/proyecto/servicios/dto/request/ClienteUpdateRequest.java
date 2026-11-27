@@ -124,6 +124,8 @@ public class ClienteUpdateRequest extends ClienteLlaveRequest {
     @Null(message = "El número de cuenta no puede modificarse.")
     private String numeroCuenta;
 
+    // java:S2789: null = campo omitido y Optional.empty() = borrar el valor (actualizacion parcial)
+    @SuppressWarnings("java:S2789")
     @JsonIgnore
     @AssertTrue(message = "Debe indicar al menos un campo a modificar.")
     public boolean isConCambios() {

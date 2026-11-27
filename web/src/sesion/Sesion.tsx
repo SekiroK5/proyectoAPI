@@ -37,7 +37,7 @@ function leerGuardada(): DatosSesion | null {
   }
 }
 
-export function ProveedorSesion({ children }: { children: ReactNode }) {
+export function ProveedorSesion({ children }: Readonly<{ children: ReactNode }>) {
   const [sesion, setSesion] = useState<DatosSesion | null>(() => {
     const guardada = leerGuardada()
     establecerToken(guardada?.token ?? null)

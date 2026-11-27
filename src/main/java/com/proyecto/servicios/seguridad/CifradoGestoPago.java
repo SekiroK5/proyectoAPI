@@ -44,11 +44,11 @@ public class CifradoGestoPago {
 
     /** Cifra el JSON y lo devuelve en Base64 (valor del parametro {@code signed}). */
     public String cifrar(String json) {
-        return AesEncryption.AESCipher(Mode.ENCRYPT, json, ivConfigurado(), llaveConfigurada());
+        return AesEncryption.aesCipher(Mode.ENCRYPT, json, ivConfigurado(), llaveConfigurada());
     }
 
     public String descifrar(String cifrado) {
-        return AesEncryption.AESCipher(Mode.DECRYPT, cifrado, ivConfigurado(), llaveConfigurada());
+        return AesEncryption.aesCipher(Mode.DECRYPT, cifrado, ivConfigurado(), llaveConfigurada());
     }
 
     private String llaveConfigurada() {

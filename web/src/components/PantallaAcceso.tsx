@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Icono } from './Iconos'
 
 /** Estructura de login y registro: panel de marca a la izquierda y formulario a la derecha. */
-export function PantallaAcceso({ children, ancho }: { children: ReactNode; ancho?: boolean }) {
+export function PantallaAcceso({ children, ancho }: Readonly<{ children: ReactNode; ancho?: boolean }>) {
   return (
     <div className="pantalla-acceso">
       <aside className="panel-marca">

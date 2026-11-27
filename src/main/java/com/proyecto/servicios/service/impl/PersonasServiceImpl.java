@@ -9,7 +9,6 @@ import com.proyecto.servicios.repository.sf.PersonasRepository;
 import com.proyecto.servicios.service.PersonaService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -17,8 +16,12 @@ import java.util.Optional;
 @Service
 @Slf4j
 public class PersonasServiceImpl implements PersonaService {
-    @Autowired
-    private PersonasRepository personasRepository;
+    private final PersonasRepository personasRepository;
+
+    public PersonasServiceImpl(PersonasRepository personasRepository) {
+        this.personasRepository = personasRepository;
+    }
+
     @Override
     public PersonaResponse creaPersona(PersonasRequest personasRequest) {
         PersonaResponse person=new PersonaResponse();

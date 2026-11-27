@@ -342,7 +342,7 @@ class SendTxHandlerTest {
 
     @Test
     @DisplayName("Recarga exitosa: payload SendTx exacto, 200 'Pago exitoso.' y cargo aplicado")
-    void recargaExitosa() throws Exception {
+    void recargaExitosa() {
         registroCierraCon(EstatusTransaccion.APLICADA);
         when(gateway.enviar(anyString())).thenReturn(respuesta("01", "Operacion realizada con exito"));
 

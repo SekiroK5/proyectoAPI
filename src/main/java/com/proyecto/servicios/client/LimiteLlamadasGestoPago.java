@@ -5,7 +5,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import java.sql.Date;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -41,7 +40,7 @@ public class LimiteLlamadasGestoPago {
         if (maximoDiario < 1) {
             return false;
         }
-        int filas = jdbc.update(RESERVAR, Date.valueOf(LocalDate.now(clock)), operacion, maximoDiario);
+        int filas = jdbc.update(RESERVAR, LocalDate.now(clock), operacion, maximoDiario);
         if (filas == 0) {
             log.warn("Cupo diario de GestoPago agotado para {} (maximo {} al dia); no se llama", operacion, maximoDiario);
             return false;

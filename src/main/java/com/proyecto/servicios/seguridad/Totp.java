@@ -75,7 +75,11 @@ public class Totp {
         return clock.millis() / 1000 / PERIODO_SEGUNDOS;
     }
 
-    /** Algoritmo HOTP (RFC 4226) sobre el contador de tiempo. */
+    /**
+     * Algoritmo HOTP (RFC 4226) sobre el contador de tiempo. java:S4790: HMAC-SHA1 es el algoritmo que exige
+     * RFC 6238 y el unico que aceptan Google y Microsoft Authenticator; HMAC no es vulnerable a colisiones de SHA-1.
+     */
+    @SuppressWarnings("java:S4790")
     public static String generarCodigo(byte[] clave, long paso) {
         try {
             Mac mac = Mac.getInstance("HmacSHA1");
